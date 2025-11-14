@@ -213,16 +213,36 @@ class Simulator:
         sorted_used_by_usage = sorted(used_pumps, key=lambda x: x[1].get_usage_time())
         sorted_available = sorted_unused + sorted_used_by_usage
         
-        # Add pumps until target is met or exceeded
+        # Add pumps until we're close to target (allow rounding down if close enough)
         # Always prioritize unused pumps first - they get selected before used pumps
         # Then select used pumps starting with least-used ones for better balance
+        # Allow rounding down if we're within 5% of target
+        tolerance = target_flowrate * 0.05  # 5% tolerance
+        
         for pump_id, pump in sorted_available:
-            if total_flow >= target_flowrate:
+            # Check if adding this pump would exceed target significantly
+            flow = pump.calculate_flow_m3_per_15min(current_level)
+            new_total = total_flow + flow
+            
+            # If we're already close to target (within tolerance), stop adding pumps
+            if total_flow >= target_flowrate - tolerance:
+                # Only add if it doesn't exceed target by too much (more than 10%)
+                if new_total <= target_flowrate * 1.1:
+                    total_flow = new_total
+                    selected_pumps.add(pump_id)
                 break
             
-            flow = pump.calculate_flow_m3_per_15min(current_level)
-            total_flow += flow
-            selected_pumps.add(pump_id)
+            # If adding this pump gets us close to or exceeds target, add it
+            if new_total >= target_flowrate - tolerance:
+                total_flow = new_total
+                selected_pumps.add(pump_id)
+                # Stop if we've met or slightly exceeded target
+                if new_total >= target_flowrate:
+                    break
+            else:
+                # Still far from target, add the pump
+                total_flow = new_total
+                selected_pumps.add(pump_id)
         
         # Balance pump usage: if there's a big imbalance, prefer less-used pumps
         # Calculate usage statistics
