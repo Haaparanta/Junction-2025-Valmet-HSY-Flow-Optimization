@@ -125,6 +125,28 @@ def main():
     return total_cost
 
 
+def safe_float_convert(value):
+    """
+    Safely convert value to float, handling special characters like minus signs.
+    
+    Args:
+        value: Value to convert (can be string, float, or other numeric type)
+        
+    Returns:
+        float value, or 0.0 if conversion fails
+    """
+    if pd.isna(value):
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    # Convert to string and replace special minus sign (U+2212) with regular minus
+    str_value = str(value).replace('−', '-').replace(',', '.')
+    try:
+        return float(str_value)
+    except (ValueError, TypeError):
+        return 0.0
+
+
 def plot_simulation_results(simulator: Simulator, csv_path: str = None):
     """
     Generate comprehensive plots of simulation results with comparison to CSV data.
@@ -155,7 +177,7 @@ def plot_simulation_results(simulator: Simulator, csv_path: str = None):
     ax1 = fig.add_subplot(gs[0, 0])
     ax1.plot(time_hours, data['water_levels'], 'b-', linewidth=2, label='Simulated Water Level', alpha=0.8)
     if csv_data is not None:
-        csv_levels = csv_data['Water level in tunnel L2'].tolist()[:96]
+        csv_levels = [safe_float_convert(x) for x in csv_data['Water level in tunnel L2'].tolist()[:96]]
         ax1.plot(time_hours, csv_levels, 'b--', linewidth=1.5, label='CSV Water Level', alpha=0.6)
     ax1.axhline(y=14.1, color='r', linestyle='--', linewidth=2, label='Max Level (14.1 m)')
     ax1.axhline(y=0.5, color='orange', linestyle='--', linewidth=1, label='Min Target (0.5 m)')
@@ -169,7 +191,7 @@ def plot_simulation_results(simulator: Simulator, csv_path: str = None):
     ax2 = fig.add_subplot(gs[0, 1])
     ax2.plot(time_hours, data['volumes'], 'g-', linewidth=2, label='Simulated Volume', alpha=0.8)
     if csv_data is not None:
-        csv_volumes = csv_data['Water volume in tunnel V'].tolist()[:96]
+        csv_volumes = [safe_float_convert(x) for x in csv_data['Water volume in tunnel V'].tolist()[:96]]
         ax2.plot(time_hours, csv_volumes, 'g--', linewidth=1.5, label='CSV Volume', alpha=0.6)
     ax2.set_xlabel('Time (hours)')
     ax2.set_ylabel('Volume (m³)')
@@ -185,8 +207,8 @@ def plot_simulation_results(simulator: Simulator, csv_path: str = None):
     ax3.plot(time_hours, data['outflows'], 'r-', linewidth=2, label='Simulated Outflow', alpha=0.7)
     ax3.plot(time_hours, data['target_flowrates'], 'g--', linewidth=1.5, label='Target Flowrate', alpha=0.8)
     if csv_data is not None:
-        csv_inflows = csv_data['Inflow to tunnel F1'].tolist()[:96]
-        csv_outflows = csv_data['Sum of pumped flow to WWTP F2'].tolist()[:96]
+        csv_inflows = [safe_float_convert(x) for x in csv_data['Inflow to tunnel F1'].tolist()[:96]]
+        csv_outflows = [safe_float_convert(x) for x in csv_data['Sum of pumped flow to WWTP F2'].tolist()[:96]]
         csv_outflows_15min = [x / 4.0 for x in csv_outflows]  # Convert m³/h to m³/15min
         ax3.plot(time_hours, csv_inflows, 'b--', linewidth=1.5, label='CSV Inflow', alpha=0.5)
         ax3.plot(time_hours, csv_outflows_15min, 'r--', linewidth=1.5, label='CSV Outflow', alpha=0.5)
@@ -200,7 +222,7 @@ def plot_simulation_results(simulator: Simulator, csv_path: str = None):
     ax4 = fig.add_subplot(gs[1, 1])
     ax4.plot(time_hours, data['energy_prices'], 'purple', linewidth=2, marker='o', markersize=3, label='Simulated Energy Price', alpha=0.8)
     if csv_data is not None:
-        csv_energy_prices = csv_data['Electricity price 2: normal'].tolist()[:96]
+        csv_energy_prices = [safe_float_convert(x) for x in csv_data['Electricity price 2: normal'].tolist()[:96]]
         csv_energy_prices_eur = [x / 100.0 for x in csv_energy_prices]  # Convert from snt to EUR
         ax4.plot(time_hours, csv_energy_prices_eur, 'purple', linewidth=1.5, linestyle='--', label='CSV Energy Price', alpha=0.6)
     ax4.set_xlabel('Time (hours)')
