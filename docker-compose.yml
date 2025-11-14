@@ -1,0 +1,16 @@
+
+
+services:
+  simulator:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    volumes:
+      # Mount CSV data directory
+      - ./Valmet-HSY-Docs:/app/data:ro
+      # Mount output directory for plots
+      - ./output:/app/output
+    environment:
+      - CSV_DATA_PATH=/app/data/Hackathon_HSY_data.csv
+    container_name: wastewater-simulator
+
