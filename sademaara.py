@@ -63,7 +63,7 @@ def downsample_10min_to_15min(rain_values):
     return downsampled
 
 if __name__ == "__main__":
-    station_id = 852678
+    station_id = 852678 #Nuuksio
     #MAX 168H
     start = "2024-11-15T00:00:00Z"
     end   = "2024-11-21T23:59:00Z"
