@@ -68,8 +68,7 @@ class TransformerFlowPolicy(nn.Module):
         self.log_std = nn.Parameter(torch.zeros(output_len))
 
     def forward(self, x):
-        if x.device != self.device:
-            print(x.device, "does not match with", self.device)
+        print(x.device, "does not match with", self.device)
         # x shape: [timestemp_count, feature_count] -> add batch dimension
         if x.dim() == 2:
             x = x.unsqueeze(0)  # [1, seq_len, feature_dim]

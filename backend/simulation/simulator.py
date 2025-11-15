@@ -64,9 +64,11 @@ class Simulator:
         small_pump_ids = ["1.1", "2.1"]
 
         for pump_id in big_pump_ids:
-            self.pumps[pump_id] = Pump(pump_id, is_big=True)
+            pump = Pump(pump_id, is_big=True)
+            self.pumps[pump_id] = pump
         for pump_id in small_pump_ids:
-            self.pumps[pump_id] = Pump(pump_id, is_big=False)
+            pump = Pump(pump_id, is_big=False)
+            self.pumps[pump_id] = pump
 
         # Initialize state
         self.current_water_level = starting_water_level
@@ -109,6 +111,21 @@ class Simulator:
                 pump_id: [] for pump_id in self.pumps.keys()
             },  # Flow in m³/h
         }
+
+    # Helper function to calculate expected flow considering startup/shutdown
+    def _get_expected_flow(
+        self,
+        pump_id: str,
+        current_level: float,
+        is_starting: bool = False,
+        is_stopping: bool = False,
+    ) -> float:
+        """Calculate expected flow considering startup/shutdown half-speed."""
+        pump = self.pumps[pump_id]
+        base_flow = pump.calculate_flow_m3_per_15min(current_level)
+        if is_starting or is_stopping:
+            return base_flow * 0.5  # Half speed during startup/shutdown
+        return base_flow
 
     def _select_pumps(
         self, target_flowrate: float, current_level: float, time_step: int
@@ -158,16 +175,6 @@ class Simulator:
                     # Pump is on but not tracked - assume it must stay on (shouldn't happen)
                     pumps_must_stay_on.add(pump_id)
 
-        # Helper function to calculate expected flow considering startup/shutdown
-        def get_expected_flow(
-            pump_id: str, is_starting: bool = False, is_stopping: bool = False
-        ) -> float:
-            """Calculate expected flow considering startup/shutdown half-speed."""
-            base_flow = self.pumps[pump_id].calculate_flow_m3_per_15min(current_level)
-            if is_starting or is_stopping:
-                return base_flow * 0.5  # Half speed during startup/shutdown
-            return base_flow
-
         # Start with pumps that must stay on
         selected_pumps: Set[str] = set(pumps_must_stay_on)
         # Calculate flow considering if pumps are stopping (completed minimum runtime)
@@ -178,8 +185,8 @@ class Simulator:
                 turn_on_time = self.pump_turn_on_time[pump_id]
                 runtime_periods = time_step - turn_on_time
                 is_stopping = runtime_periods == MINIMUM_RUNTIME_PERIODS
-            total_flow += get_expected_flow(
-                pump_id, is_starting=False, is_stopping=is_stopping
+            total_flow += self._get_expected_flow(
+                pump_id, current_level, is_starting=False, is_stopping=is_stopping
             )
 
         # If we need more flow, first check if we should keep pumps that can turn off
@@ -206,8 +213,8 @@ class Simulator:
                     turn_on_time = self.pump_turn_on_time[pump_id]
                     runtime_periods = time_step - turn_on_time
                     is_stopping = runtime_periods == MINIMUM_RUNTIME_PERIODS
-                flow = get_expected_flow(
-                    pump_id, is_starting=False, is_stopping=is_stopping
+                flow = self._get_expected_flow(
+                    pump_id, current_level, is_starting=False, is_stopping=is_stopping
                 )
                 total_flow += flow
                 selected_pumps.add(pump_id)
@@ -254,8 +261,8 @@ class Simulator:
                     if total_flow >= target_flowrate:
                         break
                     # New pumps are starting, so half speed
-                    flow = get_expected_flow(
-                        pump_id, is_starting=True, is_stopping=False
+                    flow = self._get_expected_flow(
+                        pump_id, current_level, is_starting=True, is_stopping=False
                     )
                     total_flow += flow
                     selected_pumps.add(pump_id)
@@ -264,8 +271,8 @@ class Simulator:
                 if time_step % 4 == 0 and len(sorted_unused) > 0:
                     pump_id, pump = sorted_unused[0]
                     # New pump is starting, so half speed
-                    flow = get_expected_flow(
-                        pump_id, is_starting=True, is_stopping=False
+                    flow = self._get_expected_flow(
+                        pump_id, current_level, is_starting=True, is_stopping=False
                     )
                     # Only add if we still need flow
                     if total_flow < target_flowrate:
@@ -277,8 +284,8 @@ class Simulator:
                 if time_step % 12 == 0 and len(sorted_unused) > 0:
                     pump_id, pump = sorted_unused[0]
                     # New pump is starting, so half speed
-                    flow = get_expected_flow(
-                        pump_id, is_starting=True, is_stopping=False
+                    flow = self._get_expected_flow(
+                        pump_id, current_level, is_starting=True, is_stopping=False
                     )
                     # Only add if we still need flow
                     if total_flow < target_flowrate:
@@ -303,8 +310,8 @@ class Simulator:
             # Check if pump is starting (not currently selected)
             is_starting = pump_id not in selected_pumps
             # Account for half-speed if pump is starting
-            flow = get_expected_flow(
-                pump_id, is_starting=is_starting, is_stopping=False
+            flow = self._get_expected_flow(
+                pump_id, current_level, is_starting=is_starting, is_stopping=False
             )
             new_total = total_flow + flow
 

@@ -55,15 +55,16 @@ class Pump:
         Returns:
             Flow rate in m³/s
         """
-        # Calculate head H = L2 - L1
-        head = L2 - water_level_l1
-
-        # Clamp head to valid range
-        head = max(min(head, max(self.head_array)), min(self.head_array))
-
-        # Interpolate flow rate based on head
-        flow_m3s = np.interp(head, self.head_array, self.flow_array)
-        return flow_m3s
+        return self.flow_function(water_level_l1)
+        # # Calculate head H = L2 - L1
+        # head = L2 - water_level_l1
+        #
+        # # Clamp head to valid range
+        # head = max(min(head, max(self.head_array)), min(self.head_array))
+        #
+        # # Interpolate flow rate based on head
+        # flow_m3s = np.interp(head, self.head_array, self.flow_array)
+        # return flow_m3s
 
     def calculate_flow_m3_per_15min(self, water_level_l1: float) -> float:
         """
