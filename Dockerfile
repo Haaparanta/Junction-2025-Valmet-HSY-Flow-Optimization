@@ -91,13 +91,23 @@ RUN echo '#!/bin/bash' > /app/start-frontend.sh && \
     echo 'export NODE_ENV=production' >> /app/start-frontend.sh && \
     echo 'export PORT=${FRONTEND_PORT:-5173}' >> /app/start-frontend.sh && \
     echo 'export HOST=0.0.0.0' >> /app/start-frontend.sh && \
-    echo '# Production: start Node.js server' >> /app/start-frontend.sh && \
+    echo 'export ORIGIN=${ORIGIN:-}' >> /app/start-frontend.sh && \
+    echo 'echo "Starting frontend server..."' >> /app/start-frontend.sh && \
+    echo 'echo "Working directory: $(pwd)"' >> /app/start-frontend.sh && \
+    echo 'echo "Build directory contents:"' >> /app/start-frontend.sh && \
+    echo 'ls -la build/ 2>/dev/null || echo "Build directory not found"' >> /app/start-frontend.sh && \
+    echo '# Production: start Node.js server (adapter-node creates server.js)' >> /app/start-frontend.sh && \
     echo 'if [ -f build/server.js ]; then' >> /app/start-frontend.sh && \
+    echo '  echo "Starting with build/server.js"' >> /app/start-frontend.sh && \
     echo '  exec node build/server.js' >> /app/start-frontend.sh && \
     echo 'elif [ -f build/index.js ]; then' >> /app/start-frontend.sh && \
+    echo '  echo "Starting with build/index.js"' >> /app/start-frontend.sh && \
     echo '  exec node build/index.js' >> /app/start-frontend.sh && \
     echo 'else' >> /app/start-frontend.sh && \
-    echo '  exec node build' >> /app/start-frontend.sh && \
+    echo '  echo "ERROR: No server file found in build directory"' >> /app/start-frontend.sh && \
+    echo '  echo "Available files:"' >> /app/start-frontend.sh && \
+    echo '  ls -la build/ || echo "Build directory does not exist"' >> /app/start-frontend.sh && \
+    echo '  exit 1' >> /app/start-frontend.sh && \
     echo 'fi' >> /app/start-frontend.sh && \
     chmod +x /app/start-frontend.sh
 
