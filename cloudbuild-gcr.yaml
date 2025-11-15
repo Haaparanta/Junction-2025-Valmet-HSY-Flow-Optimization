@@ -1,0 +1,32 @@
+steps:
+  # Build backend Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/${PROJECT_ID}/backend:${SHORT_SHA}'
+      - '-t'
+      - 'gcr.io/${PROJECT_ID}/backend:latest'
+      - '-f'
+      - 'backend/Dockerfile'
+      - 'backend'
+    id: 'build-backend'
+
+  # Push backend image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '--all-tags'
+      - 'gcr.io/${PROJECT_ID}/backend'
+    id: 'push-backend'
+    waitFor: ['build-backend']
+
+# Images to be pushed to the registry
+images:
+  - 'gcr.io/${PROJECT_ID}/backend:${SHORT_SHA}'
+  - 'gcr.io/${PROJECT_ID}/backend:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'
+
