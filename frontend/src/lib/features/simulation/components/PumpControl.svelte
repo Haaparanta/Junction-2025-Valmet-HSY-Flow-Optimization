@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icon from '@iconify/svelte'
   import { Tween } from 'svelte/motion'
+  import PumpPerformanceModal from './PumpPerformanceModal.svelte'
 
   type Props = {
     forecastedUse: number
@@ -11,6 +12,7 @@
   let { name, forecastedUse, performanceCurve }: Props = $props()
 
   let isActive = $derived(forecastedUse !== undefined && forecastedUse > 0)
+  let showModal = $state(false)
 
   // Constant slow rotation for active pumps
   let rotation = new Tween(0, { duration: 1000, easing: (t) => t })
@@ -23,9 +25,16 @@
       return () => clearInterval(interval)
     }
   })
+
+  const handleClick = () => {
+    showModal = true
+  }
 </script>
 
-<div class="pointer-events-none relative z-10 flex flex-col items-center gap-2">
+<button
+  class="pointer-events-auto relative z-10 flex cursor-pointer flex-col items-center gap-2 transition-transform hover:scale-105"
+  onclick={handleClick}
+>
   <div class="relative z-10" data-pump-icon>
     <Icon
       icon="material-symbols:water-pump-outline-rounded"
@@ -47,7 +56,11 @@
       {name}
     </div>
     <div class="text-xs" style:color={isActive ? 'var(--color-chart-strategy)' : 'var(--color-text-disabled)'}>
-      {forecastedUse.toFixed(1)} m³/s
+      {(forecastedUse * 1000).toFixed(1)} L/s
     </div>
   </div>
-</div>
+</button>
+
+{#if showModal}
+  <PumpPerformanceModal {name} {performanceCurve} currentFlow={forecastedUse} onClose={() => (showModal = false)} />
+{/if}

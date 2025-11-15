@@ -36,7 +36,7 @@
       return ticks
     }
 
-    const step = Math.floor((domain[1] - domain[0]) / ticks)
+    const step = (domain[1] - domain[0]) / ticks
     return Array.from({ length: ticks + 1 }, (_, i) => domain[0] + i * step)
   })
 </script>
