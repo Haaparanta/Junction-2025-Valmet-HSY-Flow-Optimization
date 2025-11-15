@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from numpy.random import random, shuffle
 import pandas as pd
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import tqdm
 
@@ -118,47 +119,110 @@ def penalize_min_flow_rate(target_flowrates):
     return min_flow_penalizer
 
 
-def train(train_data: list[TrainData]):
+def run_single_simulation(args):
+    """
+    Helper function to run a single simulation.
+    This function needs to be at module level for pickling with ProcessPoolExecutor.
+    
+    Args:
+        args: Tuple of (current_water_level, electricity_price, estimated_inflow_rate, target_flowrates)
+    
+    Returns:
+        Total cost from simulation
+    """
+    current_water_level, electricity_price, estimated_inflow_rate, target_flowrates = args
+    simulator = Simulator(
+        current_water_level,
+        electricity_price,
+        estimated_inflow_rate,
+        target_flowrates,
+    )
+    return simulator.simulate()
+
+
+def train(train_data: list[TrainData], csv_path: str = None, max_workers=None):
+    """
+    Train the policy model with multithreaded simulator execution.
+    
+    Args:
+        train_data: List of training data samples
+        csv_path: Path to CSV file for plotting results (optional)
+        max_workers: Maximum number of worker processes. If None, uses os.cpu_count()
+    """
     policy = TransformerFlowPolicy(input_shape=[96, 11])
     optimizer = optim.Adam(policy.parameters(), lr=1e-3)
 
     data = CustomDataset(train_data)
     loader = DataLoader(data, batch_size=64, shuffle=True)
 
-    simulator: Simulator
-    for epoch in tqdm.tqdm(range(10), desc="Train"):
-        # for episode, data in enumerate(train_data):
-        for batch in loader:
-            action, log_prob = policy.get_action_and_logprob(batch)
+    # Use ProcessPoolExecutor for CPU-bound simulator tasks
+    if max_workers is None:
+        import multiprocessing
+        max_workers = multiprocessing.cpu_count()
+    
+    simulator: Simulator = None
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        for epoch in tqdm.tqdm(range(10), desc="Train"):
+            # for episode, data in enumerate(train_data):
+            for batch in loader:
+                action, log_prob = policy.get_action_and_logprob(batch)
 
-            all_costs = torch.zeros((batch.shape[0]))
-            for sample_i in range(batch.shape[0]):
-                sample_action = action[sample_i, :]
-                current_water_level = float(batch[sample_i, 0, 2])
-                electricity_price = batch[sample_i, :, 0].tolist()
-                estimated_inflow_rate = batch[sample_i, :, 1].tolist()
-                simulator = Simulator(
-                    current_water_level,
-                    electricity_price,
-                    estimated_inflow_rate,
-                    (
+                # Prepare simulation arguments for parallel execution
+                simulation_args = []
+                for sample_i in range(batch.shape[0]):
+                    sample_action = action[sample_i, :]
+                    current_water_level = float(batch[sample_i, 0, 2])
+                    electricity_price = batch[sample_i, :, 0].tolist()
+                    estimated_inflow_rate = batch[sample_i, :, 1].tolist()
+                    target_flowrates = (
                         6 * 1400.0 / 4.0 + 2 * 400.0 / 4.0 * sample_action.squeeze()
-                    ).tolist(),
-                )
-                total_cost = simulator.simulate()
-                all_costs[sample_i] = total_cost
+                    ).tolist()
+                    simulation_args.append((
+                        current_water_level,
+                        electricity_price,
+                        estimated_inflow_rate,
+                        target_flowrates,
+                    ))
+                    
+                    # Keep the last simulator for plotting (will run it after training)
+                    if sample_i == batch.shape[0] - 1:
+                        simulator = Simulator(
+                            current_water_level,
+                            electricity_price,
+                            estimated_inflow_rate,
+                            target_flowrates,
+                        )
 
-            # loss = -(log_prob * total_cost + penalize_min_flow_rate(action.detach()))
-            loss = -(log_prob * all_costs).mean()
+                # Run simulations in parallel
+                all_costs = torch.zeros((batch.shape[0]))
+                future_to_index = {
+                    executor.submit(run_single_simulation, args): i
+                    for i, args in enumerate(simulation_args)
+                }
+                
+                for future in as_completed(future_to_index):
+                    sample_i = future_to_index[future]
+                    try:
+                        total_cost = future.result()
+                        all_costs[sample_i] = total_cost
+                    except Exception as exc:
+                        print(f"Sample {sample_i} generated an exception: {exc}")
+                        all_costs[sample_i] = float('inf')  # Penalize failed simulations
 
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+                # loss = -(log_prob * total_cost + penalize_min_flow_rate(action.detach()))
+                loss = -(log_prob * all_costs).mean()
+
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
 
     # if episode == 1050:
     # print(f"Epoch {epoch} Episode {episode}, Cost: {total_cost:.2f}")
     # print(action)
-    plot_simulation_results(simulator, csv_path)
+    if simulator is not None and csv_path is not None:
+        # Run the simulator to get results for plotting
+        simulator.simulate()
+        plot_simulation_results(simulator, csv_path)
     # print("params:", list(policy.parameters()))
     # print(loss)
     # input()
@@ -182,4 +246,4 @@ if __name__ == "__main__":
     # Read CSV data
     df = read_csv_with_european_format(csv_path)
     dataset = data_into_dataset(df)
-    train(dataset)
+    train(dataset, csv_path=csv_path)
