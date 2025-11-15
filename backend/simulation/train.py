@@ -162,7 +162,7 @@ def train(
         csv_path: Path to CSV file for plotting results (optional)
         max_workers: Maximum number of worker processes. If None, uses os.cpu_count()
     """
-    policy = TransformerFlowPolicy(input_shape=[96, 11])
+    policy = TransformerFlowPolicy(input_shape=[96, 11]).to(DEVICE)
     optimizer = optim.Adam(policy.parameters(), lr=1e-3)
 
     data = CustomDataset(train_data)
