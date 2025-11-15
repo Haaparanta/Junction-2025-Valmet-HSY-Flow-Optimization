@@ -14,24 +14,24 @@ Industrial-grade OPC UA integration connecting wastewater tunnel optimization wi
          ▼
 ┌─────────────────────────────────────┐
 │   OPC UA Server (This System)       │
-│  ┌──────────────────────────────┐  │
-│  │  OPC UA Node Address Space   │  │
-│  │  - Water Level L1 (read)     │  │
-│  │  - Pump States (read/write)  │  │
-│  │  - Optimization Results      │  │
-│  │  - Commands (write)          │  │
-│  └──────────────────────────────┘  │
-└────────┬───────────────────────────┘
+│  ┌──────────────────────────────┐   │
+│  │  OPC UA Node Address Space   │   │
+│  │  - Water Level L1 (read)     │   │
+│  │  - Pump States (read/write)  │   │
+│  │  - Optimization Results      │   │
+│  │  - Commands (write)          │   │
+│  └──────────────────────────────┘   │
+└────────┬────────────────────────────┘
          │
          │ Internal API calls
          ▼
 ┌─────────────────────────────────────┐
 │   FastAPI Backend                   │
-│  ┌──────────────────────────────┐  │
-│  │  Simulation Engine            │  │
-│  │  - Runs optimization          │  │
-│  │  - Generates pump strategy   │  │
-│  └──────────────────────────────┘  │
+│  ┌──────────────────────────────┐   │
+│  │  Simulation Engine           │   │
+│  │  - Runs optimization         │   │
+│  │  - Generates pump strategy   │   │
+│  └──────────────────────────────┘   │
 └─────────────────────────────────────┘
 ```
 
