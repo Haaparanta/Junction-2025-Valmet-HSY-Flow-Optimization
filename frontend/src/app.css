@@ -1,0 +1,63 @@
+@import 'tailwindcss';
+
+@theme {
+	/* Background colors - dark slate gradient theme */
+	--color-background-primary: #020617; /* slate-950 */
+	--color-background-secondary: #0f172a; /* slate-900 */
+	--color-background-card: rgba(2, 6, 23, 0.8); /* slate-950/80 */
+	--color-background-card-secondary: rgba(15, 23, 42, 0.6); /* slate-900/60 */
+
+	/* Border colors */
+	--color-border-primary: #1e293b; /* slate-800 */
+	--color-border-secondary: rgba(30, 41, 59, 0.5); /* slate-800/50 */
+
+	/* Text colors */
+	--color-text-primary: #ffffff;
+	--color-text-secondary: #cbd5e1; /* slate-300 */
+	--color-text-muted: #94a3b8; /* slate-400 */
+	--color-text-subtle: #64748b; /* slate-600 */
+	--color-text-disabled: #475569; /* slate-700 */
+
+	/* Accent colors - cyan theme */
+	--color-accent-primary: #22d3ee; /* cyan-400 */
+	--color-accent-bg: rgba(34, 211, 238, 0.2); /* cyan-500/20 */
+	--color-accent-border: rgba(34, 211, 238, 0.5); /* cyan-500/50 */
+
+	/* Chart colors */
+	--color-chart-electricity: #fbbf24; /* amber-400 - electricity price */
+	--color-chart-inflow: #22d3ee; /* cyan-400 - water inflow */
+	--color-chart-strategy: #10b981; /* emerald-500 - pump strategy */
+	--color-chart-result: #a78bfa; /* violet-400 - water level result */
+	--color-chart-grid: #1e293b; /* slate-800 - grid lines */
+
+	/* Hover states */
+	--color-hover-bg: rgba(30, 41, 59, 0.5); /* slate-800/50 */
+	--color-hover-text: #cbd5e1; /* slate-300 */
+
+	/* Component states */
+	--color-active-bg: rgba(34, 211, 238, 0.2); /* cyan-500/20 */
+	--color-active-text: #22d3ee; /* cyan-400 */
+	--color-active-border: rgba(34, 211, 238, 0.5); /* cyan-500/50 */
+}
+
+/* Utility classes for the water treatment dashboard */
+.dashboard-gradient {
+	background: linear-gradient(
+		to bottom right,
+		var(--color-background-primary),
+		var(--color-background-secondary),
+		var(--color-background-primary)
+	);
+}
+
+.card-glass {
+	background-color: var(--color-background-card);
+	backdrop-filter: blur(12px);
+	border: 1px solid var(--color-border-primary);
+}
+
+.card-glass-secondary {
+	background-color: var(--color-background-card-secondary);
+	backdrop-filter: blur(12px);
+	border: 1px solid var(--color-border-secondary);
+}
