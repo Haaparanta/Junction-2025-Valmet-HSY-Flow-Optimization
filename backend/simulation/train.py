@@ -3,7 +3,10 @@ import os
 from pathlib import Path
 import pandas as pd
 
+import torch
 import torch.optim as optim
+
+from main import plot_simulation_results
 
 
 from .csv_reader import read_csv_with_european_format
@@ -73,12 +76,21 @@ def data_into_dataset(data: pd.DataFrame) -> list[TrainData]:
     return dataset
 
 
+def compute_returns(rewards, gamma=0.99):
+    G = 0
+    returns = []
+    for r in reversed(rewards):
+        G = r + gamma * G
+        returns.append(G)
+    return list(reversed(returns))
+
+
 def train(train_data: list[TrainData]):
     policy = TransformerFlowPolicy(input_shape=[96, 11])
     optimizer = optim.Adam(policy.parameters(), lr=1e-3)
 
     for episode, data in enumerate(train_data):
-        target_flow_rate = policy(
+        action, log_prob = policy.get_action_and_logprob(
             input_tensor(
                 data.previous_pump_height,
                 data.current_fill_percent,
@@ -86,23 +98,26 @@ def train(train_data: list[TrainData]):
                 data.estimated_inflow_rate,
                 data.previous_flow_rate,
             )
-        ).to_list()  # outputs 96-step flow sequence
-        total_cost = Simulator(
+        )
+
+        simulator = Simulator(
             data.previous_flow_rate[-1],
             data.electricity_price,
             data.estimated_inflow_rate,
-            target_flow_rate,
-        ).simulate()
+            action.squeeze().tolist(),
+        )
+        total_cost = simulator.simulate()
 
-        loss = -total_cost
+        loss = -(log_prob * total_cost)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-        if episode % 10 == 0:
+        if episode % 100 == 0:
             print(
                 f"Episode {episode}, Total Cost: {total_cost:.2f}, Cost: {total_cost:.2f}"
             )
+            plot_simulation_results(simulator, csv_path)
 
 
 if __name__ == "__main__":
