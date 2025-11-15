@@ -6,28 +6,29 @@ import numba
 # Constant water level at WWTP (pump pressure side)
 L2 = 30.0  # meters
 
-FLOW_BIG = np.array([0.33, 0.5, 0.6, 0.67, 0.75, 0.82])
-FLOW_SMALL = np.array([0.15, 0.25, 0.30, 0.35, 0.40, 0.44])
-
-HEAD_ARRAY_BIG = [35, 30, 25, 20, 15, 10]
-HEAD_ARRAY_SMALL = [40, 35, 30, 25, 20, 15]
+# m3/h
+FLOW_BIG = np.array([400, 1000, 1200, 1300, 1500]) / 1000.0 * 60 * 60
+# m
+HEAD_ARRAY_BIG = [35, 30, 25, 20, 15]
 MULTIPLIERS_BIG = np.polyfit(HEAD_ARRAY_BIG, FLOW_BIG, 2)
+
+# m3/h
+FLOW_SMALL = np.array([310, 500, 600, 670, 750, 850]) / 1000.0 * 60 * 60
+# m
+HEAD_ARRAY_SMALL = [35, 30, 25, 20, 15, 10]
 MULTIPLIERS_SMALL = np.polyfit(HEAD_ARRAY_SMALL, FLOW_SMALL, 2)
 
 
 @numba.njit()
 def calculate_flow_small_m3_per_15_min_small(water_level: float):
     return (
-        MULTIPLIERS_SMALL[0] * water_level**2
-        + MULTIPLIERS_SMALL[1] * water_level * 900.0
+        MULTIPLIERS_SMALL[0] * water_level**2 + MULTIPLIERS_SMALL[1] * water_level / 4.0
     )
 
 
 @numba.njit()
 def calculate_flow_big_m3_per_15_min_big(water_level: float):
-    return (
-        MULTIPLIERS_BIG[0] * water_level**2 + MULTIPLIERS_BIG[1] * water_level * 900.0
-    )
+    return MULTIPLIERS_BIG[0] * water_level**2 + MULTIPLIERS_BIG[1] * water_level / 4.0
 
 
 class Pump:
