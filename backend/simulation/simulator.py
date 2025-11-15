@@ -2,7 +2,11 @@
 
 import cachetools
 from typing import List, Dict, Set
-from .pump import Pump
+from .pump import (
+    Pump,
+    calculate_flow_small_m3_per_15_min_small,
+    calculate_flow_big_m3_per_15_min_big,
+)
 from .tunnel import (
     calculate_volume_from_level,
     calculate_level_from_volume,
@@ -113,17 +117,6 @@ class Simulator:
             },  # Flow in m³/h
         }
 
-    @cachetools.cached(cachetools.LRUCache(10_000))
-    def __cached_get_expected_flow(
-        self, pump_id: str, current_level_int: int, is_starting: bool, is_stopping: bool
-    ) -> float:
-        current_level = current_level_int / 1000.0
-        pump = self.pumps[pump_id]
-        base_flow = pump.calculate_flow_m3_per_15min(current_level)
-        if is_starting or is_stopping:
-            return base_flow * 0.5  # Half speed during startup/shutdown
-        return base_flow
-
     # Helper function to calculate expected flow considering startup/shutdown
     def _get_expected_flow(
         self,
@@ -133,9 +126,15 @@ class Simulator:
         is_stopping: bool = False,
     ) -> float:
         """Calculate expected flow considering startup/shutdown half-speed."""
-        return self.__cached_get_expected_flow(
-            pump_id, int(current_level * 10_000), is_starting, is_stopping
-        )
+        pump = self.pumps[pump_id]
+        flow: float
+        if pump.is_big:
+            flow = calculate_flow_big_m3_per_15_min_big(current_level)
+        else:
+            flow = calculate_flow_small_m3_per_15_min_small(current_level)
+        if is_starting or is_stopping:
+            return flow * 0.5  # Half speed during startup/shutdown
+        return flow
 
     def _select_pumps(
         self, target_flowrate: float, current_level: float, time_step: int
