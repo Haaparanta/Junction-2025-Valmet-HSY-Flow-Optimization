@@ -30,6 +30,7 @@ class SimulationRequest(BaseModel):
 class SimulationResponse(BaseModel):
     """Complete simulation result."""
     id: str = Field(..., description="Simulation UUID")
+    name: str = Field(..., description="Simulation name")
     timestamp: datetime = Field(..., description="Simulation timestamp")
     timestamps_24h: List[str] = Field(..., description="24h timestamps in ISO format, one every 15 minutes (96 values)")
     rain_forecast_24h: List[float] = Field(..., description="24h rain forecast in mm (96 values)")
@@ -49,28 +50,36 @@ class SimulationMetadata(BaseModel):
     id: str = Field(..., description="Simulation UUID")
     name: str = Field(..., description="Simulation name")
     timestamp: str = Field(..., description="Simulation timestamp")
+    total_cost: float = Field(..., description="Total simulation cost in EUR")
+    starting_water_level: float = Field(..., description="Starting water level in meters")
+    average_water_level: float = Field(..., description="Average water level during simulation in meters")
+    total_electricity_consumption: float = Field(..., description="Total electricity consumption in kWh")
 
 
 class SingleDataResponse(BaseModel):
     """Response for single data type endpoints."""
+    id: str = Field(..., description="Simulation UUID")
     name: str = Field(..., description="Simulation name")
     data: List[float] = Field(..., description="Data values")
 
 
 class PumpingStrategyResponse(BaseModel):
     """Response for pumping strategy endpoint."""
+    id: str = Field(..., description="Simulation UUID")
     name: str = Field(..., description="Simulation name")
     data: List[Dict[str, bool]] = Field(..., description="Pumping strategy data")
 
 
 class PumpsResponse(BaseModel):
     """Response for pumps endpoint."""
+    id: str = Field(..., description="Simulation UUID")
     name: str = Field(..., description="Simulation name")
     pumps: List[PumpData] = Field(..., description="Pump data")
 
 
 class TotalCostResponse(BaseModel):
     """Response for total cost endpoint."""
+    id: str = Field(..., description="Simulation UUID")
     name: str = Field(..., description="Simulation name")
     total_cost: float = Field(..., description="Total cost")
 

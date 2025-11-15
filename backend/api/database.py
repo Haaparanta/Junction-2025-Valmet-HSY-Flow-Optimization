@@ -155,12 +155,64 @@ def save_simulation_to_db(simulation: SimulationResponse, name: str) -> None:
         conn.close()
 
 
-def get_simulation_by_name(name: str) -> Optional[SimulationResponse]:
+def list_simulations() -> List[Dict[str, Any]]:
     """
-    Get full simulation by name.
+    List all simulations with metadata and summary values.
+    
+    Returns:
+        List of dicts with id, name, timestamp, total_cost, starting_water_level,
+        average_water_level, total_electricity_consumption
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT 
+            s.id,
+            s.name,
+            s.timestamp,
+            so.total_cost,
+            si.starting_water_level,
+            so.water_level_estimate_24h,
+            so.electricity_consumption_24h
+        FROM simulations s
+        LEFT JOIN simulation_inputs si ON s.id = si.simulation_id
+        LEFT JOIN simulation_outputs so ON s.id = so.simulation_id
+        ORDER BY s.timestamp DESC
+    """)
+    rows = cursor.fetchall()
+    
+    conn.close()
+    
+    result = []
+    for row in rows:
+        # Calculate average water level
+        water_levels = json.loads(row["water_level_estimate_24h"]) if row["water_level_estimate_24h"] else []
+        avg_water_level = sum(water_levels) / len(water_levels) if water_levels else 0.0
+        
+        # Calculate total electricity consumption
+        electricity_consumption = json.loads(row["electricity_consumption_24h"]) if row["electricity_consumption_24h"] else []
+        total_electricity = sum(electricity_consumption) if electricity_consumption else 0.0
+        
+        result.append({
+            "id": row["id"],
+            "name": row["name"],
+            "timestamp": row["timestamp"],
+            "total_cost": row["total_cost"] if row["total_cost"] is not None else 0.0,
+            "starting_water_level": row["starting_water_level"] if row["starting_water_level"] is not None else 0.0,
+            "average_water_level": avg_water_level,
+            "total_electricity_consumption": total_electricity
+        })
+    
+    return result
+
+
+def get_simulation_by_id(simulation_id: str) -> Optional[SimulationResponse]:
+    """
+    Get full simulation by UUID.
     
     Args:
-        name: Simulation name
+        simulation_id: Simulation UUID
         
     Returns:
         SimulationResponse or None if not found
@@ -169,25 +221,23 @@ def get_simulation_by_name(name: str) -> Optional[SimulationResponse]:
     cursor = conn.cursor()
     
     # Get simulation metadata
-    cursor.execute("SELECT * FROM simulations WHERE name = ?", (name,))
+    cursor.execute("SELECT * FROM simulations WHERE id = ?", (simulation_id,))
     sim_row = cursor.fetchone()
     
     if sim_row is None:
         conn.close()
         return None
     
-    sim_id = sim_row["id"]
-    
     # Get inputs
-    cursor.execute("SELECT * FROM simulation_inputs WHERE simulation_id = ?", (sim_id,))
+    cursor.execute("SELECT * FROM simulation_inputs WHERE simulation_id = ?", (simulation_id,))
     inputs_row = cursor.fetchone()
     
     # Get outputs
-    cursor.execute("SELECT * FROM simulation_outputs WHERE simulation_id = ?", (sim_id,))
+    cursor.execute("SELECT * FROM simulation_outputs WHERE simulation_id = ?", (simulation_id,))
     outputs_row = cursor.fetchone()
     
     # Get pumps
-    cursor.execute("SELECT * FROM simulation_pumps WHERE simulation_id = ?", (sim_id,))
+    cursor.execute("SELECT * FROM simulation_pumps WHERE simulation_id = ?", (simulation_id,))
     pumps_rows = cursor.fetchall()
     
     conn.close()
@@ -210,6 +260,7 @@ def get_simulation_by_name(name: str) -> Optional[SimulationResponse]:
     
     response = SimulationResponse(
         id=sim_row["id"],
+        name=sim_row["name"],
         timestamp=datetime.fromisoformat(sim_row["timestamp"]),
         timestamps_24h=json.loads(inputs_row["timestamps_24h"]),
         rain_forecast_24h=json.loads(inputs_row["rain_forecast_24h"]),
@@ -227,166 +278,109 @@ def get_simulation_by_name(name: str) -> Optional[SimulationResponse]:
     return response
 
 
-def list_simulations() -> List[Dict[str, Any]]:
+def get_simulation_name_by_id(simulation_id: str) -> Optional[str]:
     """
-    List all simulations with metadata.
-    
-    Returns:
-        List of dicts with id, name, timestamp
-    """
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT id, name, timestamp FROM simulations ORDER BY timestamp DESC")
-    rows = cursor.fetchall()
-    
-    conn.close()
-    
-    return [
-        {
-            "id": row["id"],
-            "name": row["name"],
-            "timestamp": row["timestamp"]
-        }
-        for row in rows
-    ]
-
-
-def get_simulation_id_by_name(name: str) -> Optional[str]:
-    """
-    Get simulation ID by name.
+    Get simulation name by UUID.
     
     Args:
-        name: Simulation name
+        simulation_id: Simulation UUID
         
     Returns:
-        Simulation ID or None if not found
+        Simulation name or None if not found
     """
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    cursor.execute("SELECT id FROM simulations WHERE name = ?", (name,))
+    cursor.execute("SELECT name FROM simulations WHERE id = ?", (simulation_id,))
     row = cursor.fetchone()
     
     conn.close()
     
-    return row["id"] if row else None
+    return row["name"] if row else None
 
 
-def get_rain_forecast(name: str) -> Optional[List[float]]:
-    """Get rain forecast for a simulation by name."""
-    sim_id = get_simulation_id_by_name(name)
-    if sim_id is None:
-        return None
-    
+def get_rain_forecast(simulation_id: str) -> Optional[List[float]]:
+    """Get rain forecast for a simulation by UUID."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT rain_forecast_24h FROM simulation_inputs WHERE simulation_id = ?", (sim_id,))
+    cursor.execute("SELECT rain_forecast_24h FROM simulation_inputs WHERE simulation_id = ?", (simulation_id,))
     row = cursor.fetchone()
     conn.close()
     
     return json.loads(row["rain_forecast_24h"]) if row else None
 
 
-def get_electricity_prices(name: str) -> Optional[List[float]]:
-    """Get electricity prices for a simulation by name."""
-    sim_id = get_simulation_id_by_name(name)
-    if sim_id is None:
-        return None
-    
+def get_electricity_prices(simulation_id: str) -> Optional[List[float]]:
+    """Get electricity prices for a simulation by UUID."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT electricity_price_24h FROM simulation_inputs WHERE simulation_id = ?", (sim_id,))
+    cursor.execute("SELECT electricity_price_24h FROM simulation_inputs WHERE simulation_id = ?", (simulation_id,))
     row = cursor.fetchone()
     conn.close()
     
     return json.loads(row["electricity_price_24h"]) if row else None
 
 
-def get_inflow_estimates(name: str) -> Optional[List[float]]:
-    """Get inflow estimates for a simulation by name."""
-    sim_id = get_simulation_id_by_name(name)
-    if sim_id is None:
-        return None
-    
+def get_inflow_estimates(simulation_id: str) -> Optional[List[float]]:
+    """Get inflow estimates for a simulation by UUID."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT inflow_estimate_24h FROM simulation_inputs WHERE simulation_id = ?", (sim_id,))
+    cursor.execute("SELECT inflow_estimate_24h FROM simulation_inputs WHERE simulation_id = ?", (simulation_id,))
     row = cursor.fetchone()
     conn.close()
     
     return json.loads(row["inflow_estimate_24h"]) if row else None
 
 
-def get_water_levels(name: str) -> Optional[List[float]]:
-    """Get water levels for a simulation by name."""
-    sim_id = get_simulation_id_by_name(name)
-    if sim_id is None:
-        return None
-    
+def get_water_levels(simulation_id: str) -> Optional[List[float]]:
+    """Get water levels for a simulation by UUID."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT water_level_estimate_24h FROM simulation_outputs WHERE simulation_id = ?", (sim_id,))
+    cursor.execute("SELECT water_level_estimate_24h FROM simulation_outputs WHERE simulation_id = ?", (simulation_id,))
     row = cursor.fetchone()
     conn.close()
     
     return json.loads(row["water_level_estimate_24h"]) if row else None
 
 
-def get_pumping_strategy(name: str) -> Optional[List[Dict[str, bool]]]:
-    """Get pumping strategy for a simulation by name."""
-    sim_id = get_simulation_id_by_name(name)
-    if sim_id is None:
-        return None
-    
+def get_pumping_strategy(simulation_id: str) -> Optional[List[Dict[str, bool]]]:
+    """Get pumping strategy for a simulation by UUID."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT pumping_strategy_24h FROM simulation_outputs WHERE simulation_id = ?", (sim_id,))
+    cursor.execute("SELECT pumping_strategy_24h FROM simulation_outputs WHERE simulation_id = ?", (simulation_id,))
     row = cursor.fetchone()
     conn.close()
     
     return json.loads(row["pumping_strategy_24h"]) if row else None
 
 
-def get_electricity_consumption(name: str) -> Optional[List[float]]:
-    """Get electricity consumption for a simulation by name."""
-    sim_id = get_simulation_id_by_name(name)
-    if sim_id is None:
-        return None
-    
+def get_electricity_consumption(simulation_id: str) -> Optional[List[float]]:
+    """Get electricity consumption for a simulation by UUID."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT electricity_consumption_24h FROM simulation_outputs WHERE simulation_id = ?", (sim_id,))
+    cursor.execute("SELECT electricity_consumption_24h FROM simulation_outputs WHERE simulation_id = ?", (simulation_id,))
     row = cursor.fetchone()
     conn.close()
     
     return json.loads(row["electricity_consumption_24h"]) if row else None
 
 
-def get_costs(name: str) -> Optional[List[float]]:
-    """Get costs for a simulation by name."""
-    sim_id = get_simulation_id_by_name(name)
-    if sim_id is None:
-        return None
-    
+def get_costs(simulation_id: str) -> Optional[List[float]]:
+    """Get costs for a simulation by UUID."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT cost_24h FROM simulation_outputs WHERE simulation_id = ?", (sim_id,))
+    cursor.execute("SELECT cost_24h FROM simulation_outputs WHERE simulation_id = ?", (simulation_id,))
     row = cursor.fetchone()
     conn.close()
     
     return json.loads(row["cost_24h"]) if row else None
 
 
-def get_pumps(name: str) -> Optional[List[PumpData]]:
-    """Get pump data for a simulation by name."""
-    sim_id = get_simulation_id_by_name(name)
-    if sim_id is None:
-        return None
-    
+def get_pumps(simulation_id: str) -> Optional[List[PumpData]]:
+    """Get pump data for a simulation by UUID."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM simulation_pumps WHERE simulation_id = ?", (sim_id,))
+    cursor.execute("SELECT * FROM simulation_pumps WHERE simulation_id = ?", (simulation_id,))
     pumps_rows = cursor.fetchall()
     conn.close()
     
@@ -408,15 +402,11 @@ def get_pumps(name: str) -> Optional[List[PumpData]]:
     return pumps_data
 
 
-def get_total_cost(name: str) -> Optional[float]:
-    """Get total cost for a simulation by name."""
-    sim_id = get_simulation_id_by_name(name)
-    if sim_id is None:
-        return None
-    
+def get_total_cost(simulation_id: str) -> Optional[float]:
+    """Get total cost for a simulation by UUID."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT total_cost FROM simulation_outputs WHERE simulation_id = ?", (sim_id,))
+    cursor.execute("SELECT total_cost FROM simulation_outputs WHERE simulation_id = ?", (simulation_id,))
     row = cursor.fetchone()
     conn.close()
     

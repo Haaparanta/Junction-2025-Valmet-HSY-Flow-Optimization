@@ -15,7 +15,7 @@ from .models import (
 )
 from .storage import save_simulation, get_latest, get_all
 from .database import (
-    list_simulations, get_simulation_by_name,
+    list_simulations, get_simulation_by_id, get_simulation_name_by_id,
     get_rain_forecast, get_electricity_prices, get_inflow_estimates,
     get_water_levels, get_pumping_strategy, get_electricity_consumption,
     get_costs, get_pumps, get_total_cost
@@ -58,7 +58,10 @@ def convert_simulator_to_response(
     rain_forecast: List[float],
     electricity_prices: List[float],
     inflow_estimates: List[float],
-    starting_water_level: float
+    starting_water_level: float,
+    simulation_id: str,
+    simulation_name: str,
+    simulation_timestamp: datetime
 ) -> SimulationResponse:
     """
     Convert Simulator instance to SimulationResponse DTO.
@@ -69,6 +72,9 @@ def convert_simulator_to_response(
         electricity_prices: 24h electricity prices (96 values)
         inflow_estimates: 24h inflow estimates (96 values)
         starting_water_level: Starting water level
+        simulation_id: Simulation UUID
+        simulation_name: Simulation name
+        simulation_timestamp: Simulation timestamp
         
     Returns:
         SimulationResponse DTO
@@ -124,8 +130,7 @@ def convert_simulator_to_response(
         )
         pumps_data.append(pump_data)
     
-    # Generate timestamps: 96 timestamps, one every 15 minutes starting from now
-    simulation_timestamp = datetime.utcnow()
+    # Generate timestamps: 96 timestamps, one every 15 minutes starting from simulation timestamp
     timestamps_24h = [
         (simulation_timestamp + timedelta(minutes=i * 15)).isoformat() + "Z"
         for i in range(96)
@@ -133,7 +138,8 @@ def convert_simulator_to_response(
     
     # Create response
     response = SimulationResponse(
-        id=str(uuid4()),
+        id=simulation_id,
+        name=simulation_name,
         timestamp=simulation_timestamp,
         timestamps_24h=timestamps_24h,
         rain_forecast_24h=rain_forecast,
@@ -260,21 +266,27 @@ async def create_simulation(request: Optional[SimulationRequest] = None) -> Simu
         # Run simulation
         total_cost = simulator.simulate()
         
+        # Generate simulation ID and name
+        simulation_id = str(uuid4())
+        simulation_timestamp = datetime.utcnow()
+        
+        # Generate name from timestamp if not provided
+        if request is not None and request.name is not None:
+            simulation_name = request.name
+        else:
+            simulation_name = simulation_timestamp.isoformat()
+        
         # Convert to response
         response = convert_simulator_to_response(
             simulator=simulator,
             rain_forecast=rain_forecast,
             electricity_prices=electricity_prices,
             inflow_estimates=inflow_estimates,
-            starting_water_level=starting_water_level
+            starting_water_level=starting_water_level,
+            simulation_id=simulation_id,
+            simulation_name=simulation_name,
+            simulation_timestamp=simulation_timestamp
         )
-        
-        # Generate name from timestamp if not provided
-        simulation_name = None
-        if request is not None and request.name is not None:
-            simulation_name = request.name
-        else:
-            simulation_name = response.timestamp.isoformat()
         
         # Save to history (both in-memory and database)
         save_simulation(response, simulation_name)
@@ -299,29 +311,33 @@ async def health_check():
 @api_router.get("/simulations", response_model=List[SimulationMetadata])
 async def list_all_simulations() -> List[SimulationMetadata]:
     """
-    List all simulations with metadata (name, timestamp, id).
+    List all simulations with metadata (id, name, timestamp, summary values).
     
     Returns:
-        List of SimulationMetadata objects
+        List of SimulationMetadata objects with summary values
     """
     simulations = list_simulations()
     return [
         SimulationMetadata(
             id=sim["id"],
             name=sim["name"],
-            timestamp=sim["timestamp"]
+            timestamp=sim["timestamp"],
+            total_cost=sim["total_cost"],
+            starting_water_level=sim["starting_water_level"],
+            average_water_level=sim["average_water_level"],
+            total_electricity_consumption=sim["total_electricity_consumption"]
         )
         for sim in simulations
     ]
 
 
-@api_router.get("/simulations/{name}", response_model=SimulationResponse)
-async def get_simulation_by_name_endpoint(name: str) -> SimulationResponse:
+@api_router.get("/simulations/{simulation_id}", response_model=SimulationResponse)
+async def get_simulation_by_id_endpoint(simulation_id: str) -> SimulationResponse:
     """
-    Get full simulation by name.
+    Get full simulation by UUID.
     
     Args:
-        name: Simulation name
+        simulation_id: Simulation UUID
         
     Returns:
         SimulationResponse
@@ -329,91 +345,118 @@ async def get_simulation_by_name_endpoint(name: str) -> SimulationResponse:
     Raises:
         404: If simulation not found
     """
-    simulation = get_simulation_by_name(name)
+    simulation = get_simulation_by_id(simulation_id)
     if simulation is None:
-        raise HTTPException(status_code=404, detail=f"Simulation '{name}' not found")
+        raise HTTPException(status_code=404, detail=f"Simulation '{simulation_id}' not found")
     return simulation
 
 
-@api_router.get("/simulations/{name}/rain_forecast", response_model=SingleDataResponse)
-async def get_rain_forecast_endpoint(name: str) -> SingleDataResponse:
-    """Get only rain forecast for a simulation by name."""
-    data = get_rain_forecast(name)
+@api_router.get("/simulations/{simulation_id}/rain_forecast", response_model=SingleDataResponse)
+async def get_rain_forecast_endpoint(simulation_id: str) -> SingleDataResponse:
+    """Get only rain forecast for a simulation by UUID."""
+    name = get_simulation_name_by_id(simulation_id)
+    if name is None:
+        raise HTTPException(status_code=404, detail=f"Simulation '{simulation_id}' not found")
+    data = get_rain_forecast(simulation_id)
     if data is None:
-        raise HTTPException(status_code=404, detail=f"Simulation '{name}' not found")
-    return SingleDataResponse(name=name, data=data)
+        raise HTTPException(status_code=404, detail=f"Simulation '{simulation_id}' not found")
+    return SingleDataResponse(id=simulation_id, name=name, data=data)
 
 
-@api_router.get("/simulations/{name}/electricity_prices", response_model=SingleDataResponse)
-async def get_electricity_prices_endpoint(name: str) -> SingleDataResponse:
-    """Get only electricity prices for a simulation by name."""
-    data = get_electricity_prices(name)
+@api_router.get("/simulations/{simulation_id}/electricity_prices", response_model=SingleDataResponse)
+async def get_electricity_prices_endpoint(simulation_id: str) -> SingleDataResponse:
+    """Get only electricity prices for a simulation by UUID."""
+    name = get_simulation_name_by_id(simulation_id)
+    if name is None:
+        raise HTTPException(status_code=404, detail=f"Simulation '{simulation_id}' not found")
+    data = get_electricity_prices(simulation_id)
     if data is None:
-        raise HTTPException(status_code=404, detail=f"Simulation '{name}' not found")
-    return SingleDataResponse(name=name, data=data)
+        raise HTTPException(status_code=404, detail=f"Simulation '{simulation_id}' not found")
+    return SingleDataResponse(id=simulation_id, name=name, data=data)
 
 
-@api_router.get("/simulations/{name}/inflow_estimates", response_model=SingleDataResponse)
-async def get_inflow_estimates_endpoint(name: str) -> SingleDataResponse:
-    """Get only inflow estimates for a simulation by name."""
-    data = get_inflow_estimates(name)
+@api_router.get("/simulations/{simulation_id}/inflow_estimates", response_model=SingleDataResponse)
+async def get_inflow_estimates_endpoint(simulation_id: str) -> SingleDataResponse:
+    """Get only inflow estimates for a simulation by UUID."""
+    name = get_simulation_name_by_id(simulation_id)
+    if name is None:
+        raise HTTPException(status_code=404, detail=f"Simulation '{simulation_id}' not found")
+    data = get_inflow_estimates(simulation_id)
     if data is None:
-        raise HTTPException(status_code=404, detail=f"Simulation '{name}' not found")
-    return SingleDataResponse(name=name, data=data)
+        raise HTTPException(status_code=404, detail=f"Simulation '{simulation_id}' not found")
+    return SingleDataResponse(id=simulation_id, name=name, data=data)
 
 
-@api_router.get("/simulations/{name}/water_levels", response_model=SingleDataResponse)
-async def get_water_levels_endpoint(name: str) -> SingleDataResponse:
-    """Get only water levels for a simulation by name."""
-    data = get_water_levels(name)
+@api_router.get("/simulations/{simulation_id}/water_levels", response_model=SingleDataResponse)
+async def get_water_levels_endpoint(simulation_id: str) -> SingleDataResponse:
+    """Get only water levels for a simulation by UUID."""
+    name = get_simulation_name_by_id(simulation_id)
+    if name is None:
+        raise HTTPException(status_code=404, detail=f"Simulation '{simulation_id}' not found")
+    data = get_water_levels(simulation_id)
     if data is None:
-        raise HTTPException(status_code=404, detail=f"Simulation '{name}' not found")
-    return SingleDataResponse(name=name, data=data)
+        raise HTTPException(status_code=404, detail=f"Simulation '{simulation_id}' not found")
+    return SingleDataResponse(id=simulation_id, name=name, data=data)
 
 
-@api_router.get("/simulations/{name}/pumping_strategy", response_model=PumpingStrategyResponse)
-async def get_pumping_strategy_endpoint(name: str) -> PumpingStrategyResponse:
-    """Get only pumping strategy for a simulation by name."""
-    data = get_pumping_strategy(name)
+@api_router.get("/simulations/{simulation_id}/pumping_strategy", response_model=PumpingStrategyResponse)
+async def get_pumping_strategy_endpoint(simulation_id: str) -> PumpingStrategyResponse:
+    """Get only pumping strategy for a simulation by UUID."""
+    name = get_simulation_name_by_id(simulation_id)
+    if name is None:
+        raise HTTPException(status_code=404, detail=f"Simulation '{simulation_id}' not found")
+    data = get_pumping_strategy(simulation_id)
     if data is None:
-        raise HTTPException(status_code=404, detail=f"Simulation '{name}' not found")
-    return PumpingStrategyResponse(name=name, data=data)
+        raise HTTPException(status_code=404, detail=f"Simulation '{simulation_id}' not found")
+    return PumpingStrategyResponse(id=simulation_id, name=name, data=data)
 
 
-@api_router.get("/simulations/{name}/electricity_consumption", response_model=SingleDataResponse)
-async def get_electricity_consumption_endpoint(name: str) -> SingleDataResponse:
-    """Get only electricity consumption for a simulation by name."""
-    data = get_electricity_consumption(name)
+@api_router.get("/simulations/{simulation_id}/electricity_consumption", response_model=SingleDataResponse)
+async def get_electricity_consumption_endpoint(simulation_id: str) -> SingleDataResponse:
+    """Get only electricity consumption for a simulation by UUID."""
+    name = get_simulation_name_by_id(simulation_id)
+    if name is None:
+        raise HTTPException(status_code=404, detail=f"Simulation '{simulation_id}' not found")
+    data = get_electricity_consumption(simulation_id)
     if data is None:
-        raise HTTPException(status_code=404, detail=f"Simulation '{name}' not found")
-    return SingleDataResponse(name=name, data=data)
+        raise HTTPException(status_code=404, detail=f"Simulation '{simulation_id}' not found")
+    return SingleDataResponse(id=simulation_id, name=name, data=data)
 
 
-@api_router.get("/simulations/{name}/costs", response_model=SingleDataResponse)
-async def get_costs_endpoint(name: str) -> SingleDataResponse:
-    """Get only costs for a simulation by name."""
-    data = get_costs(name)
+@api_router.get("/simulations/{simulation_id}/costs", response_model=SingleDataResponse)
+async def get_costs_endpoint(simulation_id: str) -> SingleDataResponse:
+    """Get only costs for a simulation by UUID."""
+    name = get_simulation_name_by_id(simulation_id)
+    if name is None:
+        raise HTTPException(status_code=404, detail=f"Simulation '{simulation_id}' not found")
+    data = get_costs(simulation_id)
     if data is None:
-        raise HTTPException(status_code=404, detail=f"Simulation '{name}' not found")
-    return SingleDataResponse(name=name, data=data)
+        raise HTTPException(status_code=404, detail=f"Simulation '{simulation_id}' not found")
+    return SingleDataResponse(id=simulation_id, name=name, data=data)
 
 
-@api_router.get("/simulations/{name}/pumps", response_model=PumpsResponse)
-async def get_pumps_endpoint(name: str) -> PumpsResponse:
-    """Get only pump data for a simulation by name."""
-    pumps = get_pumps(name)
+@api_router.get("/simulations/{simulation_id}/pumps", response_model=PumpsResponse)
+async def get_pumps_endpoint(simulation_id: str) -> PumpsResponse:
+    """Get only pump data for a simulation by UUID."""
+    name = get_simulation_name_by_id(simulation_id)
+    if name is None:
+        raise HTTPException(status_code=404, detail=f"Simulation '{simulation_id}' not found")
+    pumps = get_pumps(simulation_id)
     if pumps is None:
-        raise HTTPException(status_code=404, detail=f"Simulation '{name}' not found")
-    return PumpsResponse(name=name, pumps=pumps)
+        raise HTTPException(status_code=404, detail=f"Simulation '{simulation_id}' not found")
+    return PumpsResponse(id=simulation_id, name=name, pumps=pumps)
 
 
-@api_router.get("/simulations/{name}/total_cost", response_model=TotalCostResponse)
-async def get_total_cost_endpoint(name: str) -> TotalCostResponse:
-    """Get only total cost for a simulation by name."""
-    total_cost = get_total_cost(name)
+@api_router.get("/simulations/{simulation_id}/total_cost", response_model=TotalCostResponse)
+async def get_total_cost_endpoint(simulation_id: str) -> TotalCostResponse:
+    """Get only total cost for a simulation by UUID."""
+    name = get_simulation_name_by_id(simulation_id)
+    if name is None:
+        raise HTTPException(status_code=404, detail=f"Simulation '{simulation_id}' not found")
+    total_cost = get_total_cost(simulation_id)
     if total_cost is None:
-        raise HTTPException(status_code=404, detail=f"Simulation '{name}' not found")
-    return TotalCostResponse(name=name, total_cost=total_cost)
+        raise HTTPException(status_code=404, detail=f"Simulation '{simulation_id}' not found")
+    return TotalCostResponse(id=simulation_id, name=name, total_cost=total_cost)
 
 
 # Include the API router in the app
