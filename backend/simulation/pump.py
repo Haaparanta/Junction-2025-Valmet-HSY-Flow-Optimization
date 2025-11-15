@@ -20,15 +20,21 @@ MULTIPLIERS_SMALL = np.polyfit(HEAD_ARRAY_SMALL, FLOW_SMALL, 2)
 
 
 @numba.njit()
-def calculate_flow_small_m3_per_15_min_small(water_level: float):
+def calculate_flow_small_m3_per_15_min_small(pump_height: float):
     return (
-        MULTIPLIERS_SMALL[0] * water_level**2 + MULTIPLIERS_SMALL[1] * water_level / 4.0
-    )
+        MULTIPLIERS_SMALL[0] * pump_height**2
+        + MULTIPLIERS_SMALL[1] * pump_height
+        + MULTIPLIERS_SMALL[2]
+    ) / 4.0
 
 
 @numba.njit()
-def calculate_flow_big_m3_per_15_min_big(water_level: float):
-    return MULTIPLIERS_BIG[0] * water_level**2 + MULTIPLIERS_BIG[1] * water_level / 4.0
+def calculate_flow_big_m3_per_15_min_big(pump_height: float):
+    return (
+        MULTIPLIERS_BIG[0] * pump_height**2
+        + MULTIPLIERS_BIG[1] * pump_height
+        + MULTIPLIERS_BIG[2]
+    ) / 4.0
 
 
 class Pump:
