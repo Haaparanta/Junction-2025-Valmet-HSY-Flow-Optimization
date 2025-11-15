@@ -4,6 +4,7 @@ from pathlib import Path
 from numpy.random import random, shuffle
 import pandas as pd
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import time
 
 import tqdm
 
@@ -123,14 +124,16 @@ def run_single_simulation(args):
     """
     Helper function to run a single simulation.
     This function needs to be at module level for pickling with ProcessPoolExecutor.
-    
+
     Args:
         args: Tuple of (current_water_level, electricity_price, estimated_inflow_rate, target_flowrates)
-    
+
     Returns:
         Total cost from simulation
     """
-    current_water_level, electricity_price, estimated_inflow_rate, target_flowrates = args
+    current_water_level, electricity_price, estimated_inflow_rate, target_flowrates = (
+        args
+    )
     simulator = Simulator(
         current_water_level,
         electricity_price,
@@ -140,10 +143,16 @@ def run_single_simulation(args):
     return simulator.simulate()
 
 
-def train(train_data: list[TrainData], csv_path: str = None, max_workers=None):
+def train(
+    train_data: list[TrainData],
+    batch_size=64,
+    epochs=10,
+    csv_path: str = None,
+    max_workers=None,
+):
     """
     Train the policy model with multithreaded simulator execution.
-    
+
     Args:
         train_data: List of training data samples
         csv_path: Path to CSV file for plotting results (optional)
@@ -153,22 +162,32 @@ def train(train_data: list[TrainData], csv_path: str = None, max_workers=None):
     optimizer = optim.Adam(policy.parameters(), lr=1e-3)
 
     data = CustomDataset(train_data)
-    loader = DataLoader(data, batch_size=64, shuffle=True)
+    loader = DataLoader(data, batch_size=batch_size, shuffle=True)
+
+    time_spent = {"data_loader": 0.0, "forward": 0.0, "sim": 0.0}
 
     # Use ProcessPoolExecutor for CPU-bound simulator tasks
     if max_workers is None:
         import multiprocessing
+
         max_workers = multiprocessing.cpu_count()
-    
-    simulator: Simulator = None
+
+    simulator: Simulator
+
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        for epoch in tqdm.tqdm(range(10), desc="Train"):
+        last_end_time = time.time()
+        for epoch in tqdm.tqdm(range(epochs), desc="Train"):
+            time_spent["data_loader"] += time.time() - last_end_time
+            epoch_loss = []
             # for episode, data in enumerate(train_data):
             for batch in loader:
+                forward_start = time.time()
                 action, log_prob = policy.get_action_and_logprob(batch)
+                time_spent["forward"] += time.time() - forward_start
 
                 # Prepare simulation arguments for parallel execution
                 simulation_args = []
+                sim_start = time.time()
                 for sample_i in range(batch.shape[0]):
                     sample_action = action[sample_i, :]
                     current_water_level = float(batch[sample_i, 0, 2])
@@ -177,13 +196,15 @@ def train(train_data: list[TrainData], csv_path: str = None, max_workers=None):
                     target_flowrates = (
                         6 * 1400.0 / 4.0 + 2 * 400.0 / 4.0 * sample_action.squeeze()
                     ).tolist()
-                    simulation_args.append((
-                        current_water_level,
-                        electricity_price,
-                        estimated_inflow_rate,
-                        target_flowrates,
-                    ))
-                    
+                    simulation_args.append(
+                        (
+                            current_water_level,
+                            electricity_price,
+                            estimated_inflow_rate,
+                            target_flowrates,
+                        )
+                    )
+
                     # Keep the last simulator for plotting (will run it after training)
                     if sample_i == batch.shape[0] - 1:
                         simulator = Simulator(
@@ -199,15 +220,31 @@ def train(train_data: list[TrainData], csv_path: str = None, max_workers=None):
                     executor.submit(run_single_simulation, args): i
                     for i, args in enumerate(simulation_args)
                 }
-                
+
                 for future in as_completed(future_to_index):
                     sample_i = future_to_index[future]
                     try:
                         total_cost = future.result()
                         all_costs[sample_i] = total_cost
                     except Exception as exc:
-                        print(f"Sample {sample_i} generated an exception: {exc}")
-                        all_costs[sample_i] = float('inf')  # Penalize failed simulations
+                        tqdm.tqdm.write(
+                            f"Sample {sample_i} generated an exception: {exc}"
+                        )
+                        all_costs[sample_i] = float(
+                            "inf"
+                        )  # Penalize failed simulations
+
+                time_spent["sim"] += time.time() - sim_start
+                # loss = -(log_prob * total_cost + penalize_min_flow_rate(action.detach()))
+                advantage = all_costs / (all_costs.std() + 1e-8)
+                loss = (log_prob * advantage).mean()
+                epoch_loss.append(loss)
+                # print(loss)
+                # print(
+                #     torch.autograd.grad(loss, policy.parameters(), retain_graph=True)[
+                #         0
+                #     ].norm()
+                # )
 
                 # loss = -(log_prob * total_cost + penalize_min_flow_rate(action.detach()))
                 loss = -(log_prob * all_costs).mean()
@@ -215,17 +252,16 @@ def train(train_data: list[TrainData], csv_path: str = None, max_workers=None):
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+            mean_epoch_loss = sum(epoch_loss) / len(epoch_loss)
+            tqdm.tqdm.write(
+                f"Epoch {epoch} Mean epoch loss: {mean_epoch_loss}. Time spent: {time_spent}"
+            )
+            last_end_time = time.time()
 
-    # if episode == 1050:
-    # print(f"Epoch {epoch} Episode {episode}, Cost: {total_cost:.2f}")
-    # print(action)
     if simulator is not None and csv_path is not None:
         # Run the simulator to get results for plotting
         simulator.simulate()
         plot_simulation_results(simulator, csv_path)
-    # print("params:", list(policy.parameters()))
-    # print(loss)
-    # input()
 
 
 if __name__ == "__main__":
