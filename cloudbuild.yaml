@@ -61,7 +61,7 @@ steps:
 # Substitution variables (set these in Cloud Build triggers or via gcloud)
 substitutions:
   _REGION: "europe-north1" # Change to your preferred region
-  _REPOSITORY: "Junction-2025-Valmet-HSY-Flow-Optimization" # Change to your Artifact Registry repository name
+  _REPOSITORY: "junction-2025-valmet-hsy-flow-optimization" # Change to your Artifact Registry repository name (must be lowercase)
 
 # Images to be pushed to the registry
 images:
