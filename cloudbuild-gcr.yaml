@@ -1,5 +1,5 @@
 steps:
-  # Build backend Docker image
+  # Build backend Docker image from root Dockerfile
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
@@ -7,9 +7,7 @@ steps:
       - 'gcr.io/${PROJECT_ID}/backend:${SHORT_SHA}'
       - '-t'
       - 'gcr.io/${PROJECT_ID}/backend:latest'
-      - '-f'
-      - 'backend/Dockerfile'
-      - 'backend'
+      - '.'
     id: 'build-backend'
 
   # Push backend image to Container Registry

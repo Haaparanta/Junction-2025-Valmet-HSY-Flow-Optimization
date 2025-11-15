@@ -1,5 +1,5 @@
 steps:
-  # Build backend Docker image
+  # Build backend Docker image from root Dockerfile
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
@@ -7,9 +7,7 @@ steps:
       - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/backend:${SHORT_SHA}'
       - '-t'
       - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/backend:latest'
-      - '-f'
-      - 'backend/Dockerfile'
-      - 'backend'
+      - '.'
     id: 'build-backend'
 
   # Push backend image to Artifact Registry

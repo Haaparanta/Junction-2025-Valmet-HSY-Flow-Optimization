@@ -1,0 +1,61 @@
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+.env
+.venv
+venv/
+ENV/
+env/
+.pytest_cache
+.coverage
+htmlcov/
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Output files
+output/
+*.png
+*.jpg
+*.jpeg
+
+# Documentation (keep CSV data, exclude other formats)
+Valmet-HSY-Docs/*.docx
+Valmet-HSY-Docs/*.pptx
+Valmet-HSY-Docs/*.PDF
+Valmet-HSY-Docs/*.pdf
+Valmet-HSY-Docs/*.xlsx
+!Valmet-HSY-Docs/*.csv
+
+# Frontend (if not needed for backend build)
+frontend/
+
+# Docker files
+docker-compose.yml
+Dockerfile
+backend/Dockerfile
+
+# Cloud build configs
+cloudbuild*.yaml
+cloudbuild*.yml
+
+# Deployment docs
+DEPLOYMENT.md
+README.md
+
