@@ -43,6 +43,13 @@ Valmet-HSY-Docs/*.pdf
 Valmet-HSY-Docs/*.xlsx
 !Valmet-HSY-Docs/*.csv
 
+# Frontend: exclude build artifacts but keep source files for multi-stage build
+frontend/node_modules
+frontend/build
+frontend/.svelte-kit
+frontend/.vscode
+frontend/.idea
+
 # Docker files
 docker-compose.yml
 Dockerfile

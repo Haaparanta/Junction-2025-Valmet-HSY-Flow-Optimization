@@ -1,89 +1,72 @@
+# Google Cloud Build Configuration
+# Repository: https://github.com/Haaparanta/Junction-2025-Valmet-HSY-Flow-Optimization
+# Builds combined Docker image (backend + frontend) and pushes to Artifact Registry
+
 steps:
-  # Build backend Docker image from root Dockerfile
+  # Create Artifact Registry repository if it doesn't exist
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        gcloud artifacts repositories describe ${_REPOSITORY} \
+          --location=${_REGION} \
+          --format="value(name)" || \
+        gcloud artifacts repositories create ${_REPOSITORY} \
+          --repository-format=docker \
+          --location=${_REGION} \
+          --description="Docker repository for Junction Valmet application"
+    id: "create-repository"
+
+  # Build combined Docker image (backend + frontend) from root Dockerfile
   - name: "gcr.io/cloud-builders/docker"
     args:
       - "build"
       - "-t"
-      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/backend:${SHORT_SHA}"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/app:${SHORT_SHA}"
       - "-t"
-      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/backend:latest"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/app:latest"
       - "."
-    id: "build-backend"
+    id: "build-app"
+    waitFor: ["create-repository"]
 
-  # Push backend image to Artifact Registry
+  # Push combined image to Artifact Registry
   - name: "gcr.io/cloud-builders/docker"
     args:
       - "push"
       - "--all-tags"
-      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/backend"
-    id: "push-backend"
-    waitFor: ["build-backend"]
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/app"
+    id: "push-app"
+    waitFor: ["build-app"]
 
-  # Deploy backend to Cloud Run (optional - uncomment if you want to deploy)
+  # Deploy to Cloud Run (optional - uncomment if you want to deploy)
   # - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
   #   entrypoint: gcloud
   #   args:
   #     - 'run'
   #     - 'deploy'
-  #     - 'backend'
+  #     - 'junction-valmet-app'
   #     - '--image'
-  #     - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/backend:${SHORT_SHA}'
+  #     - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/app:${SHORT_SHA}'
   #     - '--region'
   #     - '${_REGION}'
   #     - '--platform'
   #     - 'managed'
-  #   id: 'deploy-backend'
-  #   waitFor: ['push-backend']
-
-  # Build frontend Docker image
-  - name: "gcr.io/cloud-builders/docker"
-    args:
-      - "build"
-      - "-t"
-      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/frontend:${SHORT_SHA}"
-      - "-t"
-      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/frontend:latest"
-      - "-f"
-      - "frontend/Dockerfile"
-      - "frontend"
-    id: "build-frontend"
-
-  # Push frontend image to Artifact Registry
-  - name: "gcr.io/cloud-builders/docker"
-    args:
-      - "push"
-      - "--all-tags"
-      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/frontend"
-    id: "push-frontend"
-    waitFor: ["build-frontend"]
-
-  # Deploy frontend to Cloud Run (optional - uncomment if you want to deploy)
-  # - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  #   entrypoint: gcloud
-  #   args:
-  #     - 'run'
-  #     - 'deploy'
-  #     - 'frontend'
-  #     - '--image'
-  #     - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/frontend:${SHORT_SHA}'
-  #     - '--region'
-  #     - '${_REGION}'
-  #     - '--platform'
-  #     - 'managed'
-  #   id: 'deploy-frontend'
-  #   waitFor: ['push-frontend']
+  #     - '--port'
+  #     - '8080'
+  #     - '--allow-unauthenticated'
+  #   id: 'deploy-app'
+  #   waitFor: ['push-app']
 
 # Substitution variables (set these in Cloud Build triggers or via gcloud)
 substitutions:
   _REGION: "europe-north1" # Change to your preferred region
-  _REPOSITORY: "junction-valmet" # Change to your Artifact Registry repository name
+  _REPOSITORY: "Junction-2025-Valmet-HSY-Flow-Optimization" # Change to your Artifact Registry repository name
 
 # Images to be pushed to the registry
 images:
-  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/backend:${SHORT_SHA}"
-  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/backend:latest"
-  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/frontend:${SHORT_SHA}"
-  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/frontend:latest"
+  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/app:${SHORT_SHA}"
+  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/app:latest"
 
 options:
   logging: CLOUD_LOGGING_ONLY
