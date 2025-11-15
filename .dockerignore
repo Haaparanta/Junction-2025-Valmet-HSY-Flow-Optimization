@@ -43,9 +43,6 @@ Valmet-HSY-Docs/*.pdf
 Valmet-HSY-Docs/*.xlsx
 !Valmet-HSY-Docs/*.csv
 
-# Frontend (if not needed for backend build)
-frontend/
-
 # Docker files
 docker-compose.yml
 Dockerfile
