@@ -562,7 +562,7 @@ class Simulator:
             # Calculate actual outflow from selected pumps
             total_outflow = sum(
                 self.pumps[pump_id].calculate_flow_m3_per_15min(
-                    self.current_water_level
+                    L2 - self.current_water_level
                 )
                 * pump_speed_factors[pump_id]
                 for pump_id in pumps_on
@@ -642,7 +642,7 @@ class Simulator:
                 if is_on:
                     flow_15min = (
                         self.pumps[pump_id].calculate_flow_m3_per_15min(
-                            self.current_water_level
+                            L2 - self.current_water_level
                         )
                         * pump_speed_factors[pump_id]
                     )
