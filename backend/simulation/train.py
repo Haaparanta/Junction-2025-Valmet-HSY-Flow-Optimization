@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import os
 from pathlib import Path
+from numpy.random import random
 import pandas as pd
 
 import torch
@@ -12,6 +13,7 @@ from main import plot_simulation_results
 from .csv_reader import read_csv_with_european_format
 from .rl_model import TransformerFlowPolicy, input_tensor
 from .simulator import Simulator
+from .tunnel import calculate_volume_from_level
 
 
 @dataclass
@@ -20,6 +22,8 @@ class TrainData:
     previous_pump_height: list[float]
     # current_fill_percent (float): % filled
     current_fill_percent: float
+    # current water level (m)
+    current_water_level: float
     # electricity_price (list[float]): Price of electricity (e/kWh) for next 24h, 15 min bins. 96 values
     electricity_price: list[float]
     # estimated_inflow_rate (list[float]): Estimated amount of water incoming (m3/h) 24h, 15 min bins. 96 values
@@ -44,6 +48,7 @@ def data_into_dataset(data: pd.DataFrame) -> list[TrainData]:
     dataset = []
     for i in range(len(data)):
         try:
+            water_level = 14.1 * (random() * 0.95)
             dataset.append(
                 TrainData(
                     previous_pump_height=[
@@ -52,14 +57,15 @@ def data_into_dataset(data: pd.DataFrame) -> list[TrainData]:
                         data.iloc[i - 1]["Water level in tunnel L2"],
                         data.iloc[i]["Water level in tunnel L2"],
                     ],
-                    current_fill_percent=0.4,
+                    current_fill_percent=calculate_volume_from_level(water_level),
+                    current_water_level=water_level,
                     electricity_price=[
-                        data.iloc[time]["Electricity price 2: normal"]
+                        data.iloc[time]["Electricity price 2: normal"] / 100.0
                         for time in range(i, i + 96)
                     ],
                     estimated_inflow_rate=[
                         # Unit was m3/15min
-                        4 * data.iloc[time]["Inflow to tunnel F1"]
+                        data.iloc[time]["Inflow to tunnel F1"]
                         for time in range(i, i + 96)
                     ],
                     previous_flow_rate=[
@@ -101,7 +107,7 @@ def train(train_data: list[TrainData]):
         )
 
         simulator = Simulator(
-            data.previous_flow_rate[-1],
+            data.current_water_level,
             data.electricity_price,
             data.estimated_inflow_rate,
             action.squeeze().tolist(),
@@ -113,11 +119,13 @@ def train(train_data: list[TrainData]):
         loss.backward()
         optimizer.step()
 
-        if episode % 100 == 0:
+        if episode >= 1000:
             print(
                 f"Episode {episode}, Total Cost: {total_cost:.2f}, Cost: {total_cost:.2f}"
             )
+            print(action)
             plot_simulation_results(simulator, csv_path)
+            input()
 
 
 if __name__ == "__main__":
