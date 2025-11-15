@@ -3,6 +3,7 @@
 import cachetools
 from typing import List, Dict, Set
 from .pump import (
+    L2,
     Pump,
     calculate_flow_small_m3_per_15_min_small,
     calculate_flow_big_m3_per_15_min_big,
@@ -129,9 +130,9 @@ class Simulator:
         pump = self.pumps[pump_id]
         flow: float
         if pump.is_big:
-            flow = calculate_flow_big_m3_per_15_min_big(current_level)
+            flow = calculate_flow_big_m3_per_15_min_big(L2 - current_level)
         else:
-            flow = calculate_flow_small_m3_per_15_min_small(current_level)
+            flow = calculate_flow_small_m3_per_15_min_small(L2 - current_level)
         if is_starting or is_stopping:
             return flow * 0.5  # Half speed during startup/shutdown
         return flow
