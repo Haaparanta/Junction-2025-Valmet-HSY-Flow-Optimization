@@ -201,7 +201,8 @@ def train(
                     electricity_price = batch[sample_i, :, 0].tolist()
                     estimated_inflow_rate = batch[sample_i, :, 1].tolist()
                     target_flowrates = (
-                        6 * 1400.0 / 4.0 + 2 * 400.0 / 4.0 * sample_action.squeeze()
+                        # scale flow of from 0..1 into maximum flow rate of 16_000 m3/h and convert into m3/15min
+                        16_000.0 / 4.0 * sample_action.squeeze()
                     ).tolist()
                     simulation_args.append(
                         (
