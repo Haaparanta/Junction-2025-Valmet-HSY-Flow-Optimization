@@ -19,6 +19,7 @@ class PumpData(BaseModel):
 
 class SimulationRequest(BaseModel):
     """Optional input for POST /simulate (if None, fetch automatically)."""
+    name: Optional[str] = Field(None, description="Optional simulation name (if not provided, timestamp will be used)")
     rain_forecast: Optional[List[float]] = Field(None, description="24h rain forecast in mm (96 values)")
     electricity_prices: Optional[List[float]] = Field(None, description="24h electricity prices in EUR/kWh (96 values)")
     inflow_estimates: Optional[List[float]] = Field(None, description="24h inflow estimates in m³/15min (96 values)")
@@ -41,4 +42,35 @@ class SimulationResponse(BaseModel):
     pumps: List[PumpData] = Field(..., description="8 pumps with their 24h data")
     total_cost: float = Field(..., description="Total simulation cost in EUR")
     starting_water_level: float = Field(..., description="Starting water level in meters")
+
+
+class SimulationMetadata(BaseModel):
+    """Simulation metadata for listing."""
+    id: str = Field(..., description="Simulation UUID")
+    name: str = Field(..., description="Simulation name")
+    timestamp: str = Field(..., description="Simulation timestamp")
+
+
+class SingleDataResponse(BaseModel):
+    """Response for single data type endpoints."""
+    name: str = Field(..., description="Simulation name")
+    data: List[float] = Field(..., description="Data values")
+
+
+class PumpingStrategyResponse(BaseModel):
+    """Response for pumping strategy endpoint."""
+    name: str = Field(..., description="Simulation name")
+    data: List[Dict[str, bool]] = Field(..., description="Pumping strategy data")
+
+
+class PumpsResponse(BaseModel):
+    """Response for pumps endpoint."""
+    name: str = Field(..., description="Simulation name")
+    pumps: List[PumpData] = Field(..., description="Pump data")
+
+
+class TotalCostResponse(BaseModel):
+    """Response for total cost endpoint."""
+    name: str = Field(..., description="Simulation name")
+    total_cost: float = Field(..., description="Total cost")
 

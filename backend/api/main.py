@@ -5,11 +5,21 @@ from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 
-from .models import SimulationRequest, SimulationResponse, PumpData, PumpPerformanceCurve
+from .models import (
+    SimulationRequest, SimulationResponse, PumpData, PumpPerformanceCurve,
+    SimulationMetadata, SingleDataResponse, PumpingStrategyResponse,
+    PumpsResponse, TotalCostResponse
+)
 from .storage import save_simulation, get_latest, get_all
+from .database import (
+    list_simulations, get_simulation_by_name,
+    get_rain_forecast, get_electricity_prices, get_inflow_estimates,
+    get_water_levels, get_pumping_strategy, get_electricity_consumption,
+    get_costs, get_pumps, get_total_cost
+)
 from .data_fetcher import (
     fetch_rain_forecast_24h,
     fetch_electricity_prices_24h,
@@ -24,7 +34,10 @@ from simulation.simulator import Simulator
 app = FastAPI(
     title="Simulation API",
     description="API for managing wastewater tunnel system simulations",
-    version="1.0.0"
+    version="1.0.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json"
 )
 
 # Add CORS middleware
@@ -35,6 +48,9 @@ app.add_middleware(
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
 )
+
+# Create API router with /api prefix
+api_router = APIRouter(prefix="/api")
 
 
 def convert_simulator_to_response(
@@ -135,7 +151,7 @@ def convert_simulator_to_response(
     return response
 
 
-@app.get("/")
+@api_router.get("/")
 async def get_latest_simulation() -> SimulationResponse:
     """
     Get the latest simulation.
@@ -152,7 +168,7 @@ async def get_latest_simulation() -> SimulationResponse:
     return simulation
 
 
-@app.get("/all")
+@api_router.get("/all")
 async def get_all_simulations() -> List[SimulationResponse]:
     """
     Get all simulations in history.
@@ -163,7 +179,7 @@ async def get_all_simulations() -> List[SimulationResponse]:
     return get_all()
 
 
-@app.post("/simulate", response_model=SimulationResponse)
+@api_router.post("/simulate", response_model=SimulationResponse)
 async def create_simulation(request: Optional[SimulationRequest] = None) -> SimulationResponse:
     """
     Create a new simulation with real-time data.
@@ -223,17 +239,15 @@ async def create_simulation(request: Optional[SimulationRequest] = None) -> Simu
                 detail=f"inflow_estimates must have 96 values, got {len(inflow_estimates)}"
             )
         
-        # Derive target flowrates from inflow if not provided
+        # Derive target flowrates from inflow if not provided or invalid
         if request is None or request.target_flowrates is None:
             # Use inflow * 1.1 as buffer
             target_flowrates = [inflow * 1.1 for inflow in inflow_estimates]
+        elif len(request.target_flowrates) != 96:
+            # If provided but wrong length, derive from inflow instead of erroring
+            target_flowrates = [inflow * 1.1 for inflow in inflow_estimates]
         else:
             target_flowrates = request.target_flowrates
-            if len(target_flowrates) != 96:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"target_flowrates must have 96 values, got {len(target_flowrates)}"
-                )
         
         # Create and run simulator
         simulator = Simulator(
@@ -255,8 +269,15 @@ async def create_simulation(request: Optional[SimulationRequest] = None) -> Simu
             starting_water_level=starting_water_level
         )
         
-        # Save to history
-        save_simulation(response)
+        # Generate name from timestamp if not provided
+        simulation_name = None
+        if request is not None and request.name is not None:
+            simulation_name = request.name
+        else:
+            simulation_name = response.timestamp.isoformat()
+        
+        # Save to history (both in-memory and database)
+        save_simulation(response, simulation_name)
         
         return response
         
@@ -269,8 +290,132 @@ async def create_simulation(request: Optional[SimulationRequest] = None) -> Simu
         )
 
 
-@app.get("/health")
+@api_router.get("/health")
 async def health_check():
     """Health check endpoint."""
     return {"status": "ok"}
+
+
+@api_router.get("/simulations", response_model=List[SimulationMetadata])
+async def list_all_simulations() -> List[SimulationMetadata]:
+    """
+    List all simulations with metadata (name, timestamp, id).
+    
+    Returns:
+        List of SimulationMetadata objects
+    """
+    simulations = list_simulations()
+    return [
+        SimulationMetadata(
+            id=sim["id"],
+            name=sim["name"],
+            timestamp=sim["timestamp"]
+        )
+        for sim in simulations
+    ]
+
+
+@api_router.get("/simulations/{name}", response_model=SimulationResponse)
+async def get_simulation_by_name_endpoint(name: str) -> SimulationResponse:
+    """
+    Get full simulation by name.
+    
+    Args:
+        name: Simulation name
+        
+    Returns:
+        SimulationResponse
+        
+    Raises:
+        404: If simulation not found
+    """
+    simulation = get_simulation_by_name(name)
+    if simulation is None:
+        raise HTTPException(status_code=404, detail=f"Simulation '{name}' not found")
+    return simulation
+
+
+@api_router.get("/simulations/{name}/rain_forecast", response_model=SingleDataResponse)
+async def get_rain_forecast_endpoint(name: str) -> SingleDataResponse:
+    """Get only rain forecast for a simulation by name."""
+    data = get_rain_forecast(name)
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"Simulation '{name}' not found")
+    return SingleDataResponse(name=name, data=data)
+
+
+@api_router.get("/simulations/{name}/electricity_prices", response_model=SingleDataResponse)
+async def get_electricity_prices_endpoint(name: str) -> SingleDataResponse:
+    """Get only electricity prices for a simulation by name."""
+    data = get_electricity_prices(name)
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"Simulation '{name}' not found")
+    return SingleDataResponse(name=name, data=data)
+
+
+@api_router.get("/simulations/{name}/inflow_estimates", response_model=SingleDataResponse)
+async def get_inflow_estimates_endpoint(name: str) -> SingleDataResponse:
+    """Get only inflow estimates for a simulation by name."""
+    data = get_inflow_estimates(name)
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"Simulation '{name}' not found")
+    return SingleDataResponse(name=name, data=data)
+
+
+@api_router.get("/simulations/{name}/water_levels", response_model=SingleDataResponse)
+async def get_water_levels_endpoint(name: str) -> SingleDataResponse:
+    """Get only water levels for a simulation by name."""
+    data = get_water_levels(name)
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"Simulation '{name}' not found")
+    return SingleDataResponse(name=name, data=data)
+
+
+@api_router.get("/simulations/{name}/pumping_strategy", response_model=PumpingStrategyResponse)
+async def get_pumping_strategy_endpoint(name: str) -> PumpingStrategyResponse:
+    """Get only pumping strategy for a simulation by name."""
+    data = get_pumping_strategy(name)
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"Simulation '{name}' not found")
+    return PumpingStrategyResponse(name=name, data=data)
+
+
+@api_router.get("/simulations/{name}/electricity_consumption", response_model=SingleDataResponse)
+async def get_electricity_consumption_endpoint(name: str) -> SingleDataResponse:
+    """Get only electricity consumption for a simulation by name."""
+    data = get_electricity_consumption(name)
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"Simulation '{name}' not found")
+    return SingleDataResponse(name=name, data=data)
+
+
+@api_router.get("/simulations/{name}/costs", response_model=SingleDataResponse)
+async def get_costs_endpoint(name: str) -> SingleDataResponse:
+    """Get only costs for a simulation by name."""
+    data = get_costs(name)
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"Simulation '{name}' not found")
+    return SingleDataResponse(name=name, data=data)
+
+
+@api_router.get("/simulations/{name}/pumps", response_model=PumpsResponse)
+async def get_pumps_endpoint(name: str) -> PumpsResponse:
+    """Get only pump data for a simulation by name."""
+    pumps = get_pumps(name)
+    if pumps is None:
+        raise HTTPException(status_code=404, detail=f"Simulation '{name}' not found")
+    return PumpsResponse(name=name, pumps=pumps)
+
+
+@api_router.get("/simulations/{name}/total_cost", response_model=TotalCostResponse)
+async def get_total_cost_endpoint(name: str) -> TotalCostResponse:
+    """Get only total cost for a simulation by name."""
+    total_cost = get_total_cost(name)
+    if total_cost is None:
+        raise HTTPException(status_code=404, detail=f"Simulation '{name}' not found")
+    return TotalCostResponse(name=name, total_cost=total_cost)
+
+
+# Include the API router in the app
+app.include_router(api_router)
 
