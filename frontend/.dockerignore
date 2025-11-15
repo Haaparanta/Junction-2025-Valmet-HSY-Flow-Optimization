@@ -1,0 +1,42 @@
+# Dependencies
+node_modules
+
+# Build output
+build
+.svelte-kit
+
+# Development
+.vscode
+.idea
+
+# Git
+.git
+.gitignore
+
+# Environment variables (add to container separately)
+.env
+.env.*
+!.env.example
+
+# Testing
+coverage
+*.test.ts
+*.spec.ts
+
+# Documentation
+README.md
+docs
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc
+*.swp
+*.swo
+*~
