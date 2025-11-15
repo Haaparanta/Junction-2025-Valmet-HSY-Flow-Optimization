@@ -1,0 +1,277 @@
+"""Services to fetch real-time data for simulations."""
+import os
+from pathlib import Path
+from typing import List
+from datetime import datetime, timedelta
+import requests
+from xml.etree import ElementTree
+import pandas as pd
+import sys
+
+# Add parent directory to path to import simulation modules
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from simulation.csv_reader import read_csv_with_european_format
+
+
+def get_csv_path() -> str:
+    """Get path to CSV data file."""
+    # Try environment variable first
+    csv_path = os.getenv('CSV_DATA_PATH')
+    if csv_path and os.path.exists(csv_path):
+        return csv_path
+    
+    # Try relative to backend directory (for local development)
+    backend_csv = Path(__file__).parent.parent.parent / 'Valmet-HSY-Docs' / 'Hackathon_HSY_data.csv'
+    if backend_csv.exists():
+        return str(backend_csv)
+    
+    # Try Docker path (Valmet-HSY-Docs copied to /Valmet-HSY-Docs)
+    docker_csv = Path('/Valmet-HSY-Docs') / 'Hackathon_HSY_data.csv'
+    if docker_csv.exists():
+        return str(docker_csv)
+    
+    # Fallback to default
+    return str(backend_csv)
+
+
+def downsample_10min_to_15min(rain_values: List[float]) -> List[float]:
+    """
+    Downsample rain values from 10-minute to 15-minute intervals.
+    
+    Args:
+        rain_values: List of rain values at 10-minute intervals
+        
+    Returns:
+        List of rain values at 15-minute intervals (96 values for 24h)
+    """
+    downsampled = []
+    i = 0
+    n = len(rain_values)
+    target_count = 96  # 24 hours * 4 periods
+    
+    while i < n and len(downsampled) < target_count:
+        # Take first value as-is
+        downsampled.append(rain_values[i])
+        i += 1
+        # Take next two values and average
+        if i + 1 < n and len(downsampled) < target_count:
+            avg = (rain_values[i] + rain_values[i + 1]) / 2
+            downsampled.append(avg)
+            i += 2
+    
+    # Pad if needed
+    while len(downsampled) < target_count:
+        if downsampled:
+            downsampled.append(downsampled[-1])
+        else:
+            downsampled.append(0.0)
+    
+    return downsampled[:target_count]
+
+
+def fetch_rain_forecast_24h(station_id: int = 852678) -> List[float]:
+    """
+    Fetch 24h rain forecast from FMI API.
+    
+    Args:
+        station_id: FMI station ID (default: 852678 for Nuuksio)
+        
+    Returns:
+        List of 96 rain forecast values in mm per 15min
+    """
+    try:
+        now = datetime.utcnow()
+        start_time = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+        end_time = (now + timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        
+        url = (
+            "https://opendata.fmi.fi/wfs"
+            "?service=WFS"
+            "&version=2.0.0"
+            "&request=getFeature"
+            "&storedquery_id=fmi::forecast::harmonie::surface::point::multipointcoverage"
+            f"&fmisid={station_id}"
+            f"&starttime={start_time}"
+            f"&endtime={end_time}"
+            "&parameters=Precipitation1h"
+        )
+        
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        root = ElementTree.fromstring(r.content)
+        
+        ns = {
+            'gml': "http://www.opengis.net/gml/3.2",
+            'swe': "http://www.opengis.net/swe/2.0"
+        }
+        
+        rain_values = []
+        
+        # Extract rainfall values
+        for datablock in root.findall(".//gml:rangeSet/gml:DataBlock", ns):
+            axis_elem = datablock.find(".//gml:tupleList", ns)
+            if axis_elem is None:
+                axis_elem = datablock.find(".//gml:doubleOrNilReasonTupleList", ns)
+            if axis_elem is None:
+                continue
+            
+            lines = axis_elem.text.strip().split("\n")
+            for line in lines:
+                parts = line.split()
+                try:
+                    rain = float(parts[-1])
+                    rain_values.append(rain)
+                except (ValueError, IndexError):
+                    continue
+        
+        if rain_values:
+            # Downsample to 15-minute intervals
+            return downsample_10min_to_15min(rain_values)
+        else:
+            # Fallback: return zeros
+            return [0.0] * 96
+            
+    except Exception as e:
+        print(f"Warning: Could not fetch rain forecast: {e}")
+        # Fallback: return zeros
+        return [0.0] * 96
+
+
+def calculate_average_daily_inflow() -> List[float]:
+    """
+    Calculate average daily inflow pattern from CSV historical data.
+    
+    Returns:
+        List of 96 average inflow values in m³/15min (one per 15-min period)
+    """
+    try:
+        csv_path = get_csv_path()
+        if not os.path.exists(csv_path):
+            raise FileNotFoundError(f"CSV file not found at {csv_path}")
+        
+        df = read_csv_with_european_format(csv_path)
+        
+        # Ensure timestamp column exists
+        if 'Time stamp' not in df.columns:
+            raise ValueError("CSV file missing 'Time stamp' column")
+        
+        # Parse timestamp if not already datetime
+        if not pd.api.types.is_datetime64_any_dtype(df['Time stamp']):
+            df['Time stamp'] = pd.to_datetime(df['Time stamp'], errors='coerce')
+        
+        # Extract hour and minute
+        df['hour'] = df['Time stamp'].dt.hour
+        df['minute'] = df['Time stamp'].dt.minute
+        
+        # Group by hour and minute (0, 15, 30, 45)
+        df['period'] = df['hour'] * 4 + (df['minute'] // 15)
+        
+        # Calculate average inflow for each 15-min period
+        if 'Inflow to tunnel F1' not in df.columns:
+            raise ValueError("CSV file missing 'Inflow to tunnel F1' column")
+        
+        avg_inflows = df.groupby('period')['Inflow to tunnel F1'].mean()
+        
+        # Create list of 96 values (24 hours * 4 periods)
+        result = []
+        for period in range(96):
+            if period in avg_inflows.index:
+                result.append(float(avg_inflows[period]))
+            else:
+                # Use overall average if period not found
+                overall_avg = df['Inflow to tunnel F1'].mean()
+                result.append(float(overall_avg) if pd.notna(overall_avg) else 0.0)
+        
+        return result
+        
+    except Exception as e:
+        print(f"Warning: Could not calculate average daily inflow: {e}")
+        # Fallback: return a constant value
+        return [100.0] * 96  # Default 100 m³/15min
+
+
+def fetch_electricity_prices_24h() -> List[float]:
+    """
+    Fetch 24h electricity prices.
+    
+    Currently uses average pattern from CSV as fallback.
+    In production, this would fetch from Entso-E API or similar.
+    
+    Returns:
+        List of 96 electricity prices in EUR/kWh
+    """
+    try:
+        csv_path = get_csv_path()
+        if not os.path.exists(csv_path):
+            raise FileNotFoundError(f"CSV file not found at {csv_path}")
+        
+        df = read_csv_with_european_format(csv_path)
+        
+        # Ensure timestamp column exists
+        if 'Time stamp' not in df.columns:
+            raise ValueError("CSV file missing 'Time stamp' column")
+        
+        # Parse timestamp if not already datetime
+        if not pd.api.types.is_datetime64_any_dtype(df['Time stamp']):
+            df['Time stamp'] = pd.to_datetime(df['Time stamp'], errors='coerce')
+        
+        # Extract hour and minute
+        df['hour'] = df['Time stamp'].dt.hour
+        df['minute'] = df['Time stamp'].dt.minute
+        
+        # Group by hour and minute (0, 15, 30, 45)
+        df['period'] = df['hour'] * 4 + (df['minute'] // 15)
+        
+        # Calculate average electricity price for each 15-min period
+        if 'Electricity price 2: normal' not in df.columns:
+            raise ValueError("CSV file missing 'Electricity price 2: normal' column")
+        
+        # Convert from snt/kWh to EUR/kWh
+        df['price_eur'] = df['Electricity price 2: normal'] / 100.0
+        
+        avg_prices = df.groupby('period')['price_eur'].mean()
+        
+        # Create list of 96 values (24 hours * 4 periods)
+        result = []
+        for period in range(96):
+            if period in avg_prices.index:
+                result.append(float(avg_prices[period]))
+            else:
+                # Use overall average if period not found
+                overall_avg = df['price_eur'].mean()
+                result.append(float(overall_avg) if pd.notna(overall_avg) else 0.1)
+        
+        return result
+        
+    except Exception as e:
+        print(f"Warning: Could not fetch electricity prices: {e}")
+        # Fallback: return a constant value
+        return [0.1] * 96  # Default 0.1 EUR/kWh
+
+
+def get_starting_water_level() -> float:
+    """
+    Get starting water level from CSV (latest value).
+    
+    Returns:
+        Starting water level in meters
+    """
+    try:
+        csv_path = get_csv_path()
+        if not os.path.exists(csv_path):
+            raise FileNotFoundError(f"CSV file not found at {csv_path}")
+        
+        df = read_csv_with_european_format(csv_path)
+        
+        if 'Water level in tunnel L2' not in df.columns:
+            raise ValueError("CSV file missing 'Water level in tunnel L2' column")
+        
+        # Get last value
+        last_level = df['Water level in tunnel L2'].iloc[-1]
+        return float(last_level)
+        
+    except Exception as e:
+        print(f"Warning: Could not get starting water level: {e}")
+        # Fallback: return a safe default
+        return 5.0  # Default 5 meters
+

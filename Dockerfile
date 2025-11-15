@@ -23,6 +23,6 @@ COPY Valmet-HSY-Docs/ /Valmet-HSY-Docs/
 # Set Python path
 ENV PYTHONPATH=/app
 
-# Run main.py
-CMD ["python", "main.py"]
+# Run FastAPI service
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
