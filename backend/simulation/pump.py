@@ -56,8 +56,15 @@ class Pump:
         self.pump_id = pump_id
         self.is_big = is_big
         self.power = 400.0 if is_big else 250.0  # kW
+
+
+        self.flow_array = FLOW_BIG if is_big else FLOW_SMALL
+        self.head_array = (
+            HEAD_ARRAY_BIG if is_big else HEAD_ARRAY_SMALL
+        )
         # Usage time tracking (in minutes)
         self.usage_time_minutes = 0.0
+
 
     def get_power(self) -> float:
         """
