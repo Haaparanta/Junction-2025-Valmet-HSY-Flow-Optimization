@@ -192,61 +192,104 @@ def calculate_average_daily_inflow() -> List[float]:
 
 def fetch_electricity_prices_24h() -> List[float]:
     """
-    Fetch 24h electricity prices.
+    Fetch 24h electricity prices from Spot-hinta API.
     
-    Currently uses average pattern from CSV as fallback.
-    In production, this would fetch from Entso-E API or similar.
+    Uses https://api.spot-hinta.fi/DayForward?region=FI&priceResolution=15
+    Falls back to CSV average pattern if API fails.
     
     Returns:
         List of 96 electricity prices in EUR/kWh
     """
     try:
-        csv_path = get_csv_path()
-        if not os.path.exists(csv_path):
-            raise FileNotFoundError(f"CSV file not found at {csv_path}")
+        # Fetch from Spot-hinta API
+        url = "https://api.spot-hinta.fi/DayForward?region=FI&priceResolution=15"
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
         
-        df = read_csv_with_european_format(csv_path)
+        data = response.json()
         
-        # Ensure timestamp column exists
-        if 'Time stamp' not in df.columns:
-            raise ValueError("CSV file missing 'Time stamp' column")
+        if not isinstance(data, list) or len(data) == 0:
+            raise ValueError("API returned empty or invalid data")
         
-        # Parse timestamp if not already datetime
-        if not pd.api.types.is_datetime64_any_dtype(df['Time stamp']):
-            df['Time stamp'] = pd.to_datetime(df['Time stamp'], errors='coerce')
+        # Extract prices (use PriceNoTax - prices without tax)
+        # Sort by DateTime to ensure chronological order
+        sorted_data = sorted(data, key=lambda x: x.get('DateTime', ''))
         
-        # Extract hour and minute
-        df['hour'] = df['Time stamp'].dt.hour
-        df['minute'] = df['Time stamp'].dt.minute
-        
-        # Group by hour and minute (0, 15, 30, 45)
-        df['period'] = df['hour'] * 4 + (df['minute'] // 15)
-        
-        # Calculate average electricity price for each 15-min period
-        if 'Electricity price 2: normal' not in df.columns:
-            raise ValueError("CSV file missing 'Electricity price 2: normal' column")
-        
-        # Convert from snt/kWh to EUR/kWh
-        df['price_eur'] = df['Electricity price 2: normal'] / 100.0
-        
-        avg_prices = df.groupby('period')['price_eur'].mean()
-        
-        # Create list of 96 values (24 hours * 4 periods)
-        result = []
-        for period in range(96):
-            if period in avg_prices.index:
-                result.append(float(avg_prices[period]))
+        prices = []
+        for item in sorted_data:
+            if 'PriceNoTax' in item:
+                prices.append(float(item['PriceNoTax']))
+            elif 'PriceWithTax' in item:
+                # If only PriceWithTax available, estimate PriceNoTax (remove ~25% tax)
+                prices.append(float(item['PriceWithTax']) / 1.25)
             else:
-                # Use overall average if period not found
-                overall_avg = df['price_eur'].mean()
-                result.append(float(overall_avg) if pd.notna(overall_avg) else 0.1)
+                raise ValueError("API response missing price data")
         
-        return result
+        # Ensure we have exactly 96 values (24 hours * 4 periods)
+        if len(prices) >= 96:
+            # Take first 96 values
+            return prices[:96]
+        elif len(prices) > 0:
+            # Pad with last value if we have fewer than 96
+            last_price = prices[-1]
+            while len(prices) < 96:
+                prices.append(last_price)
+            return prices
+        else:
+            raise ValueError("No price data received from API")
         
     except Exception as e:
-        print(f"Warning: Could not fetch electricity prices: {e}")
-        # Fallback: return a constant value
-        return [0.1] * 96  # Default 0.1 EUR/kWh
+        print(f"Warning: Could not fetch electricity prices from API: {e}")
+        print("Falling back to CSV average pattern...")
+        
+        # Fallback to CSV average pattern
+        try:
+            csv_path = get_csv_path()
+            if not os.path.exists(csv_path):
+                raise FileNotFoundError(f"CSV file not found at {csv_path}")
+            
+            df = read_csv_with_european_format(csv_path)
+            
+            # Ensure timestamp column exists
+            if 'Time stamp' not in df.columns:
+                raise ValueError("CSV file missing 'Time stamp' column")
+            
+            # Parse timestamp if not already datetime
+            if not pd.api.types.is_datetime64_any_dtype(df['Time stamp']):
+                df['Time stamp'] = pd.to_datetime(df['Time stamp'], errors='coerce')
+            
+            # Extract hour and minute
+            df['hour'] = df['Time stamp'].dt.hour
+            df['minute'] = df['Time stamp'].dt.minute
+            
+            # Group by hour and minute (0, 15, 30, 45)
+            df['period'] = df['hour'] * 4 + (df['minute'] // 15)
+            
+            # Calculate average electricity price for each 15-min period
+            if 'Electricity price 2: normal' not in df.columns:
+                raise ValueError("CSV file missing 'Electricity price 2: normal' column")
+            
+            # Convert from snt/kWh to EUR/kWh
+            df['price_eur'] = df['Electricity price 2: normal'] / 100.0
+            
+            avg_prices = df.groupby('period')['price_eur'].mean()
+            
+            # Create list of 96 values (24 hours * 4 periods)
+            result = []
+            for period in range(96):
+                if period in avg_prices.index:
+                    result.append(float(avg_prices[period]))
+                else:
+                    # Use overall average if period not found
+                    overall_avg = df['price_eur'].mean()
+                    result.append(float(overall_avg) if pd.notna(overall_avg) else 0.1)
+            
+            return result
+            
+        except Exception as csv_error:
+            print(f"Warning: CSV fallback also failed: {csv_error}")
+            # Final fallback: return a constant value
+            return [0.1] * 96  # Default 0.1 EUR/kWh
 
 
 def get_starting_water_level() -> float:

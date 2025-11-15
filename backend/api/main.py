@@ -186,22 +186,22 @@ async def create_simulation(request: Optional[SimulationRequest] = None) -> Simu
     """
     try:
         # Fetch or use provided data
-        if request is None or request.rain_forecast is None:
+        if request is None or request.rain_forecast is None or (request.rain_forecast is not None and len(request.rain_forecast) != 96):
             rain_forecast = fetch_rain_forecast_24h()
         else:
             rain_forecast = request.rain_forecast
         
-        if request is None or request.electricity_prices is None:
+        if request is None or request.electricity_prices is None or (request.electricity_prices is not None and len(request.electricity_prices) != 96):
             electricity_prices = fetch_electricity_prices_24h()
         else:
             electricity_prices = request.electricity_prices
         
-        if request is None or request.inflow_estimates is None:
+        if request is None or request.inflow_estimates is None or (request.inflow_estimates is not None and len(request.inflow_estimates) != 96):
             inflow_estimates = calculate_average_daily_inflow()
         else:
             inflow_estimates = request.inflow_estimates
         
-        if request is None or request.starting_water_level is None:
+        if request is None or request.starting_water_level is None or request.starting_water_level == 0.0:
             starting_water_level = get_starting_water_level()
         else:
             starting_water_level = request.starting_water_level
