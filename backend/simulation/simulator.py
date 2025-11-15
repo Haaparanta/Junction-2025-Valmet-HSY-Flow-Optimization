@@ -1,5 +1,6 @@
 """24-hour simulation engine for wastewater tunnel system."""
 
+import cachetools
 from typing import List, Dict, Set
 from .pump import Pump
 from .tunnel import (
@@ -112,6 +113,17 @@ class Simulator:
             },  # Flow in m³/h
         }
 
+    @cachetools.cached(cachetools.LRUCache(10_000))
+    def __cached_get_expected_flow(
+        self, pump_id: str, current_level_int: int, is_starting: bool, is_stopping: bool
+    ) -> float:
+        current_level = current_level_int / 1000.0
+        pump = self.pumps[pump_id]
+        base_flow = pump.calculate_flow_m3_per_15min(current_level)
+        if is_starting or is_stopping:
+            return base_flow * 0.5  # Half speed during startup/shutdown
+        return base_flow
+
     # Helper function to calculate expected flow considering startup/shutdown
     def _get_expected_flow(
         self,
@@ -121,11 +133,9 @@ class Simulator:
         is_stopping: bool = False,
     ) -> float:
         """Calculate expected flow considering startup/shutdown half-speed."""
-        pump = self.pumps[pump_id]
-        base_flow = pump.calculate_flow_m3_per_15min(current_level)
-        if is_starting or is_stopping:
-            return base_flow * 0.5  # Half speed during startup/shutdown
-        return base_flow
+        return self.__cached_get_expected_flow(
+            pump_id, int(current_level * 10_000), is_starting, is_stopping
+        )
 
     def _select_pumps(
         self, target_flowrate: float, current_level: float, time_step: int
@@ -339,8 +349,8 @@ class Simulator:
                     if total_flow >= target_flowrate:
                         break
                     # New pump is starting, so half speed
-                    flow = get_expected_flow(
-                        pump_id, is_starting=True, is_stopping=False
+                    flow = self._get_expected_flow(
+                        pump_id, current_level, is_starting=True, is_stopping=False
                     )
                     total_flow += flow
                     selected_pumps.add(pump_id)
