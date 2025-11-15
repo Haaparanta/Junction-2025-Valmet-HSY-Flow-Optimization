@@ -22,6 +22,10 @@ from .tunnel import calculate_volume_from_level
 
 MIN_FLOW = 600.0
 
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+print("use device:", DEVICE)
+
 
 @dataclass
 class TrainData:
@@ -182,7 +186,9 @@ def train(
             # for episode, data in enumerate(train_data):
             for batch in loader:
                 forward_start = time.time()
-                action, log_prob = policy.get_action_and_logprob(batch)
+                action, log_prob = policy.get_action_and_logprob(batch.to(DEVICE))
+                action = action.to("cpu")
+                log_prob = log_prob.to("cpu")
                 time_spent["forward"] += time.time() - forward_start
 
                 # Prepare simulation arguments for parallel execution
