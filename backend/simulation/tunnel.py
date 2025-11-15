@@ -125,5 +125,5 @@ def validate_level(level: float) -> tuple[bool, float]:
         - penalty_cost: 1,000,000 EUR if invalid, 0 otherwise
     """
     if level > RAJA_4:
-        return False, 1_000_000.0
+        return False, 100.0
     return True, 0.0

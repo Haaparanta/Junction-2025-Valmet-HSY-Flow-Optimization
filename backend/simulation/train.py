@@ -1,11 +1,14 @@
 from dataclasses import dataclass
 import os
 from pathlib import Path
-from numpy.random import random
+from numpy.random import random, shuffle
 import pandas as pd
+
+import tqdm
 
 import torch
 import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
 
 from main import plot_simulation_results
 
@@ -14,6 +17,8 @@ from .csv_reader import read_csv_with_european_format
 from .rl_model import TransformerFlowPolicy, input_tensor
 from .simulator import Simulator
 from .tunnel import calculate_volume_from_level
+
+MIN_FLOW = 600.0
 
 
 @dataclass
@@ -46,16 +51,16 @@ def data_into_dataset(data: pd.DataFrame) -> list[TrainData]:
         )
 
     dataset = []
-    for i in range(len(data)):
+    for i in tqdm.tqdm(range(len(data)), desc="Parse data"):
         try:
             water_level = 14.1 * (random() * 0.95)
             dataset.append(
                 TrainData(
                     previous_pump_height=[
-                        data.iloc[i - 3]["Water level in tunnel L2"],
-                        data.iloc[i - 2]["Water level in tunnel L2"],
-                        data.iloc[i - 1]["Water level in tunnel L2"],
-                        data.iloc[i]["Water level in tunnel L2"],
+                        water_level * 0.85,
+                        water_level * 0.90,
+                        water_level * 0.95,
+                        water_level,
                     ],
                     current_fill_percent=calculate_volume_from_level(water_level),
                     current_water_level=water_level,
@@ -82,6 +87,23 @@ def data_into_dataset(data: pd.DataFrame) -> list[TrainData]:
     return dataset
 
 
+class CustomDataset(Dataset):
+    def __init__(self, data: list[TrainData]):
+        self.data = data
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        return input_tensor(
+            self.data[idx].previous_pump_height,
+            self.data[idx].current_fill_percent,
+            self.data[idx].electricity_price,
+            self.data[idx].estimated_inflow_rate,
+            self.data[idx].previous_flow_rate,
+        )
+
+
 def compute_returns(rewards, gamma=0.99):
     G = 0
     returns = []
@@ -91,41 +113,55 @@ def compute_returns(rewards, gamma=0.99):
     return list(reversed(returns))
 
 
+def penalize_min_flow_rate(target_flowrates):
+    min_flow_penalizer = torch.relu(MIN_FLOW - target_flowrates) ** 2
+    return min_flow_penalizer
+
+
 def train(train_data: list[TrainData]):
     policy = TransformerFlowPolicy(input_shape=[96, 11])
     optimizer = optim.Adam(policy.parameters(), lr=1e-3)
 
-    for episode, data in enumerate(train_data):
-        action, log_prob = policy.get_action_and_logprob(
-            input_tensor(
-                data.previous_pump_height,
-                data.current_fill_percent,
-                data.electricity_price,
-                data.estimated_inflow_rate,
-                data.previous_flow_rate,
-            )
-        )
+    data = CustomDataset(train_data)
+    loader = DataLoader(data, batch_size=64, shuffle=True)
 
-        simulator = Simulator(
-            data.current_water_level,
-            data.electricity_price,
-            data.estimated_inflow_rate,
-            action.squeeze().tolist(),
-        )
-        total_cost = simulator.simulate()
+    simulator: Simulator
+    for epoch in tqdm.tqdm(range(10), desc="Train"):
+        # for episode, data in enumerate(train_data):
+        for batch in loader:
+            action, log_prob = policy.get_action_and_logprob(batch)
 
-        loss = -(log_prob * total_cost)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+            all_costs = torch.zeros((batch.shape[0]))
+            for sample_i in range(batch.shape[0]):
+                sample_action = action[sample_i, :]
+                current_water_level = float(batch[sample_i, 0, 2])
+                electricity_price = batch[sample_i, :, 0].tolist()
+                estimated_inflow_rate = batch[sample_i, :, 1].tolist()
+                simulator = Simulator(
+                    current_water_level,
+                    electricity_price,
+                    estimated_inflow_rate,
+                    (
+                        6 * 1400.0 / 4.0 + 2 * 400.0 / 4.0 * sample_action.squeeze()
+                    ).tolist(),
+                )
+                total_cost = simulator.simulate()
+                all_costs[sample_i] = total_cost
 
-        if episode >= 1000:
-            print(
-                f"Episode {episode}, Total Cost: {total_cost:.2f}, Cost: {total_cost:.2f}"
-            )
-            print(action)
-            plot_simulation_results(simulator, csv_path)
-            input()
+            # loss = -(log_prob * total_cost + penalize_min_flow_rate(action.detach()))
+            loss = -(log_prob * all_costs).mean()
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+    # if episode == 1050:
+    # print(f"Epoch {epoch} Episode {episode}, Cost: {total_cost:.2f}")
+    # print(action)
+    plot_simulation_results(simulator, csv_path)
+    # print("params:", list(policy.parameters()))
+    # print(loss)
+    # input()
 
 
 if __name__ == "__main__":

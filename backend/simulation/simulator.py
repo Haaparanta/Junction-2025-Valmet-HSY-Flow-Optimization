@@ -11,7 +11,7 @@ from .tunnel import (
 
 # Constants
 MINIMUM_RUNTIME_PERIODS = 4  # 1 hour = 4 * 15 minutes
-PENALTY_COST = 1_000.0  # EUR
+PENALTY_COST = 100.0  # EUR
 TIME_STEP_MINUTES = 15  # minutes per time step
 
 
@@ -44,6 +44,9 @@ class Simulator:
             or len(water_inflows) != 96
             or len(target_flowrates) != 96
         ):
+            print(
+                f"len(energy_prices)={len(energy_prices)} len(water_inflows)={len(water_inflows)} len(target_flowrates)={len(target_flowrates)}"
+            )
             raise ValueError(
                 "All input vectors must have exactly 96 elements (24 hours * 4 periods)"
             )
@@ -652,4 +655,4 @@ class Simulator:
                 f"Warning: The following pumps were never used during the simulation: {', '.join(sorted(unused_pumps))}"
             )
 
-        return self.total_cost - 10 * self.current_water_level
+        return self.total_cost - 100.0 * self.current_water_level
