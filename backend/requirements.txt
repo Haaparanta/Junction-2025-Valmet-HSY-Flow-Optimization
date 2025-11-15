@@ -1,7 +1,4 @@
 pandas>=2.0.0
 numpy>=1.24.0
 matplotlib>=3.7.0
-
--i https://download.pytorch.org/whl/cpu
 torch>=2.9.1
-
