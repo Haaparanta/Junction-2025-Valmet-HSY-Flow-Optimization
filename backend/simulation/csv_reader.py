@@ -4,9 +4,6 @@ import pandas as pd
 from typing import Dict, Any
 
 
-from simulation.train import TrainData
-
-
 def read_csv_with_european_format(csv_path: str) -> pd.DataFrame:
     """
     Read CSV file with European number format (comma as decimal separator).
@@ -67,50 +64,6 @@ def read_csv_with_european_format(csv_path: str) -> pd.DataFrame:
             )
 
     return df
-
-
-def data_into_dataset(data: pd.DataFrame) -> list[TrainData]:
-    def calc_prev_flow_rate(row):
-        return (
-            row["Pump flow 1.1"]
-            + row["Pump flow 1.2"]
-            + row["Pump flow 1.3"]
-            + row["Pump flow 1.4"]
-            + row["Pump flow 2.1"]
-            + row["Pump flow 2.2"]
-            + row["Pump flow 2.3"]
-            + row["Pump flow 2.4"]
-        )
-
-    dataset = []
-    for i in range(len(data)):
-        dataset.append(
-            TrainData(
-                previous_pump_height=[
-                    data.iloc[i - 3]["water_level"],
-                    data.iloc[i - 2]["water_level"],
-                    data.iloc[i - 1]["water_level"],
-                    data.iloc[i]["water_level"],
-                ],
-                current_fill_percent=0.4,
-                electricity_price=[
-                    data.iloc[time]["Electricity price 2: normal"]
-                    for time in range(i, i + 96)
-                ],
-                estimated_inflow_rate=[
-                    # Unit was m3/15min
-                    4 * data.iloc[time]["Inflow to tunnel F1"]
-                    for time in range(i, i + 96)
-                ],
-                previous_flow_rate=[
-                    calc_prev_flow_rate(data.iloc[i - 3]),
-                    calc_prev_flow_rate(data.iloc[i - 2]),
-                    calc_prev_flow_rate(data.iloc[i - 1]),
-                    calc_prev_flow_rate(data.iloc[i]),
-                ],
-            )
-        )
-    return dataset
 
 
 def get_last_state(df: pd.DataFrame) -> Dict[str, Any]:

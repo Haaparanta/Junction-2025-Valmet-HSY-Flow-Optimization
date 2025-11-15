@@ -47,7 +47,7 @@ def input_tensor(
 
 
 class TransformerFlowPolicy(nn.Module):
-    def __init__(self, input_shape: list[int], nhead=4, num_layers=2, output_len=96):
+    def __init__(self, input_shape: list[int], nhead=11, num_layers=2, output_len=96):
         super().__init__()
         timestep_count, feature_count = input_shape
         self.input_proj = nn.Linear(3, feature_count)

@@ -1,12 +1,12 @@
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import pandas as pd
 
-import torch
 import torch.optim as optim
 
 
-from .csv_reader import read_csv_with_european_format, data_into_dataset
+from .csv_reader import read_csv_with_european_format
 from .rl_model import TransformerFlowPolicy, input_tensor
 from .simulator import Simulator
 
@@ -23,6 +23,54 @@ class TrainData:
     estimated_inflow_rate: list[float]
     # previous_flow_rate (list[float]): last 1h of flow rate (m3/h), 15 min bins. 4 values
     previous_flow_rate: list[float]
+
+
+def data_into_dataset(data: pd.DataFrame) -> list[TrainData]:
+    def calc_prev_flow_rate(row):
+        return (
+            row["Pump flow 1.1"]
+            + row["Pump flow 1.2"]
+            + row["Pump flow 1.3"]
+            + row["Pump flow 1.4"]
+            + row["Pump flow 2.1"]
+            + row["Pump flow 2.2"]
+            + row["Pump flow 2.3"]
+            + row["Pump flow 2.4"]
+        )
+
+    dataset = []
+    for i in range(len(data)):
+        try:
+            dataset.append(
+                TrainData(
+                    previous_pump_height=[
+                        data.iloc[i - 3]["Water level in tunnel L2"],
+                        data.iloc[i - 2]["Water level in tunnel L2"],
+                        data.iloc[i - 1]["Water level in tunnel L2"],
+                        data.iloc[i]["Water level in tunnel L2"],
+                    ],
+                    current_fill_percent=0.4,
+                    electricity_price=[
+                        data.iloc[time]["Electricity price 2: normal"]
+                        for time in range(i, i + 96)
+                    ],
+                    estimated_inflow_rate=[
+                        # Unit was m3/15min
+                        4 * data.iloc[time]["Inflow to tunnel F1"]
+                        for time in range(i, i + 96)
+                    ],
+                    previous_flow_rate=[
+                        calc_prev_flow_rate(data.iloc[i - 3]),
+                        calc_prev_flow_rate(data.iloc[i - 2]),
+                        calc_prev_flow_rate(data.iloc[i - 1]),
+                        calc_prev_flow_rate(data.iloc[i]),
+                    ],
+                )
+            )
+        except Exception:
+            pass
+    print(f"Loaded dataset with {len(dataset)} samples")
+    return dataset
 
 
 def train(train_data: list[TrainData]):
@@ -61,9 +109,12 @@ if __name__ == "__main__":
     csv_path = os.getenv(
         "CSV_DATA_PATH",
         str(
-            Path(__file__).parent.parent / "Valmet-HSY-Docs" / "Hackathon_HSY_data.csv"
+            Path(__file__).parent.parent.parent
+            / "Valmet-HSY-Docs"
+            / "Hackathon_HSY_data.csv"
         ),
     )
+    print("Using csv:", csv_path)
 
     assert os.path.exists(csv_path)
 
