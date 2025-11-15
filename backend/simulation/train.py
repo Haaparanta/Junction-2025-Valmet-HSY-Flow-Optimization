@@ -18,7 +18,7 @@ from main import plot_simulation_results
 from .csv_reader import read_csv_with_european_format
 from .rl_model import TransformerFlowPolicy, input_tensor
 from .simulator import Simulator
-from .tunnel import calculate_volume_from_level
+from .tunnel import VD_MAX, calculate_volume_from_level
 
 MIN_FLOW = 600.0
 
@@ -68,7 +68,8 @@ def data_into_dataset(data: pd.DataFrame) -> list[TrainData]:
                         water_level * 0.95,
                         water_level,
                     ],
-                    current_fill_percent=calculate_volume_from_level(water_level),
+                    current_fill_percent=calculate_volume_from_level(water_level)
+                    / VD_MAX,
                     current_water_level=water_level,
                     electricity_price=[
                         data.iloc[time]["Electricity price 2: normal"] / 100.0
