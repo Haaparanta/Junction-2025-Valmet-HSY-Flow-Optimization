@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 import pickle
+import numpy as np
 
 from simulation.simulator import Simulator
 from .rl_model import TransformerFlowPolicy
@@ -40,6 +41,7 @@ def test(train_data: list[TrainData], sample_index: int):
     electricity_price = sample[:, 0].tolist()
     estimated_inflow_rate = sample[:, 1].tolist()
     target_flowrates = (6 * 1400.0 / 4.0 + 2 * 400.0 / 4.0 * action.squeeze()).tolist()
+    print("target flow:", np.mean(target_flowrates))
     simulator = Simulator(
         current_water_level,
         electricity_price,
@@ -68,6 +70,6 @@ if __name__ == "__main__":
         with open("/tmp/dataset.pickle", "rb") as f:
             dataset = pickle.load(f)
     print(dataset[0])
-    # while True:
-    #     index = int(input("Select number to test: "))
-    #     test(dataset, index)
+    while True:
+        index = int(input("Select number to test: "))
+        test(dataset, index)
