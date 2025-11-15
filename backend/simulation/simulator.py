@@ -142,27 +142,48 @@ class Simulator:
                     # Pump is on but not tracked - assume it must stay on (shouldn't happen)
                     pumps_must_stay_on.add(pump_id)
         
+        # Helper function to calculate expected flow considering startup/shutdown
+        def get_expected_flow(pump_id: str, is_starting: bool = False, is_stopping: bool = False) -> float:
+            """Calculate expected flow considering startup/shutdown half-speed."""
+            base_flow = self.pumps[pump_id].calculate_flow_m3_per_15min(current_level)
+            if is_starting or is_stopping:
+                return base_flow * 0.5  # Half speed during startup/shutdown
+            return base_flow
+        
         # Start with pumps that must stay on
         selected_pumps: Set[str] = set(pumps_must_stay_on)
-        total_flow = sum(
-            self.pumps[pump_id].calculate_flow_m3_per_15min(current_level)
-            for pump_id in pumps_must_stay_on
-        )
+        # Calculate flow considering if pumps are stopping (completed minimum runtime)
+        total_flow = 0.0
+        for pump_id in pumps_must_stay_on:
+            is_stopping = False
+            if pump_id in self.pump_turn_on_time:
+                turn_on_time = self.pump_turn_on_time[pump_id]
+                runtime_periods = time_step - turn_on_time
+                is_stopping = (runtime_periods == MINIMUM_RUNTIME_PERIODS)
+            total_flow += get_expected_flow(pump_id, is_starting=False, is_stopping=is_stopping)
         
         # If we need more flow, first check if we should keep pumps that can turn off
         # (they're already on and providing flow)
+        # Prioritize big pumps when keeping pumps that can turn off (one big pump replaces two small pumps)
         if total_flow < target_flowrate and pumps_can_turn_off:
-            # Keep pumps that can turn off if we need their flow
-            # Sort by usage time (keep least-used ones first)
-            sorted_can_turn_off = sorted(
-                pumps_can_turn_off,
-                key=lambda pid: self.pumps[pid].get_usage_time()
-            )
+            # Sort by: big pumps first, then by usage time
+            def sort_key_can_turn_off(pid: str) -> tuple:
+                pump = self.pumps[pid]
+                is_big = pump.is_big
+                return (not is_big, pump.get_usage_time())  # True (big) comes before False (small)
+            
+            sorted_can_turn_off = sorted(pumps_can_turn_off, key=sort_key_can_turn_off)
             
             for pump_id in sorted_can_turn_off:
                 if total_flow >= target_flowrate:
                     break
-                flow = self.pumps[pump_id].calculate_flow_m3_per_15min(current_level)
+                # Check if pump is stopping (completed minimum runtime)
+                is_stopping = False
+                if pump_id in self.pump_turn_on_time:
+                    turn_on_time = self.pump_turn_on_time[pump_id]
+                    runtime_periods = time_step - turn_on_time
+                    is_stopping = (runtime_periods == MINIMUM_RUNTIME_PERIODS)
+                flow = get_expected_flow(pump_id, is_starting=False, is_stopping=is_stopping)
                 total_flow += flow
                 selected_pumps.add(pump_id)
         
@@ -177,85 +198,102 @@ class Simulator:
         unused_pumps = [(pid, p) for pid, p in available_pumps if pid not in self.pumps_used]
         used_pumps = [(pid, p) for pid, p in available_pumps if pid in self.pumps_used]
         
-        # Sort unused pumps by usage time (should all be 0, but sort anyway)
-        sorted_unused = sorted(unused_pumps, key=lambda x: x[1].get_usage_time())
-        # Sort used pumps by usage time (ascending) - least used first
-        sorted_used = sorted(used_pumps, key=lambda x: x[1].get_usage_time())
+        # Sort pumps prioritizing big pumps first, then by usage time
+        # Prefer big pumps over small pumps (one big pump can replace two small pumps)
+        def sort_key(pump_tuple):
+            pid, pump = pump_tuple
+            is_big = pump.is_big
+            return (not is_big, pump.get_usage_time())  # True (big) comes before False (small)
         
-        # Ensure all pumps are used during the day
-        # Strategy: Aggressively prioritize unused pumps
-        # After 12 hours (48 time steps), start forcing unused pumps
-        # After 18 hours (72 time steps), force all remaining unused pumps
-        if sorted_unused:
+        # Sort unused pumps: big pumps first, then by usage time
+        sorted_unused = sorted(unused_pumps, key=sort_key)
+        # Sort used pumps: big pumps first, then by usage time
+        sorted_used = sorted(used_pumps, key=sort_key)
+        
+        # Ensure all pumps are used during the day, but only if we need more flow
+        # Strategy: Prioritize unused pumps (especially big ones) when we need flow
+        # After 12 hours (48 time steps), start prioritizing unused pumps more
+        # After 18 hours (72 time steps), be more aggressive about using unused pumps
+        # Only add unused pumps if we're still below target flowrate
+        if sorted_unused and total_flow < target_flowrate:
             if time_step >= 72:
-                # Force all remaining unused pumps (we're in last quarter of day)
+                # In last quarter of day, add unused pumps if we need flow
+                # Big pumps are already first in sorted_unused
                 for pump_id, pump in sorted_unused:
-                    flow = pump.calculate_flow_m3_per_15min(current_level)
+                    if total_flow >= target_flowrate:
+                        break
+                    # New pumps are starting, so half speed
+                    flow = get_expected_flow(pump_id, is_starting=True, is_stopping=False)
                     total_flow += flow
                     selected_pumps.add(pump_id)
             elif time_step >= 48:
-                # Force at least one unused pump every 4 time steps (1 hour)
+                # Force at least one unused pump every 4 time steps (1 hour) if we need flow
                 if time_step % 4 == 0 and len(sorted_unused) > 0:
                     pump_id, pump = sorted_unused[0]
-                    flow = pump.calculate_flow_m3_per_15min(current_level)
-                    total_flow += flow
-                    selected_pumps.add(pump_id)
+                    # New pump is starting, so half speed
+                    flow = get_expected_flow(pump_id, is_starting=True, is_stopping=False)
+                    # Only add if we still need flow
+                    if total_flow < target_flowrate:
+                        total_flow += flow
+                        selected_pumps.add(pump_id)
             elif time_step >= 24:
-                # After 6 hours, start prioritizing unused pumps more
-                # Force one unused pump every 12 time steps (3 hours)
+                # After 6 hours, prioritize unused pumps more, but only if we need flow
+                # Force one unused pump every 12 time steps (3 hours) if we need flow
                 if time_step % 12 == 0 and len(sorted_unused) > 0:
                     pump_id, pump = sorted_unused[0]
-                    flow = pump.calculate_flow_m3_per_15min(current_level)
-                    total_flow += flow
-                    selected_pumps.add(pump_id)
+                    # New pump is starting, so half speed
+                    flow = get_expected_flow(pump_id, is_starting=True, is_stopping=False)
+                    # Only add if we still need flow
+                    if total_flow < target_flowrate:
+                        total_flow += flow
+                        selected_pumps.add(pump_id)
         
-        # Combine: unused first (always prioritized), then used (both sorted by usage time)
-        sorted_used_by_usage = sorted(used_pumps, key=lambda x: x[1].get_usage_time())
-        sorted_available = sorted_unused + sorted_used_by_usage
+        # Combine: unused first (always prioritized), then used
+        # Both are already sorted with big pumps first
+        sorted_available = sorted_unused + sorted_used
         
-        # Add pumps until we're close to target (allow rounding down if close enough)
+        # Add pumps until we meet or exceed target flowrate
         # Always prioritize unused pumps first - they get selected before used pumps
-        # Then select used pumps starting with least-used ones
-        # Allow rounding down if we're within tolerance of target
-        tolerance = target_flowrate * 0.15  # 15% tolerance
+        # Big pumps are prioritized within each group (one big pump replaces two small pumps)
+        # Must meet or exceed target - no tolerance for undershooting
         
         for pump_id, pump in sorted_available:
-            # Check if adding this pump would exceed target significantly
-            flow = pump.calculate_flow_m3_per_15min(current_level)
-            new_total = total_flow + flow
-            
-            # If we're already close to target (within tolerance), stop adding pumps
-            if total_flow >= target_flowrate - tolerance:
-                # Only add if it doesn't exceed target by too much (more than 10%)
-                if new_total <= target_flowrate * 1.1:
-                    total_flow = new_total
-                    selected_pumps.add(pump_id)
+            # Check if we've already met or exceeded target
+            if total_flow >= target_flowrate:
+                # We've met target, stop adding pumps
                 break
             
-            # If adding this pump gets us close to or exceeds target, add it
-            if new_total >= target_flowrate - tolerance:
-                total_flow = new_total
-                selected_pumps.add(pump_id)
-                # Stop if we've met or slightly exceeded target
-                if new_total >= target_flowrate:
-                    break
-            else:
-                # Still far from target, add the pump
-                total_flow = new_total
-                selected_pumps.add(pump_id)
+            # Check if pump is starting (not currently selected)
+            is_starting = pump_id not in selected_pumps
+            # Account for half-speed if pump is starting
+            flow = get_expected_flow(pump_id, is_starting=is_starting, is_stopping=False)
+            new_total = total_flow + flow
+            
+            # Always add the pump if we haven't met target yet
+            # We need to meet or exceed target, so keep adding until we do
+            total_flow = new_total
+            selected_pumps.add(pump_id)
+            
+            # Stop if we've met or exceeded target
+            if total_flow >= target_flowrate:
+                break
         
-        # If we still have unused pumps and haven't met target, add them anyway
-        # This ensures unused pumps get a chance even if target is already met
-        if sorted_unused and time_step >= 24:
-            # Add at least one unused pump if we haven't used all pumps yet
+        # If we still have unused pumps and haven't met target, add them if needed
+        # Only add unused pumps if we're still below target
+        # Prioritize big unused pumps (one big pump replaces two small pumps)
+        if sorted_unused and time_step >= 24 and total_flow < target_flowrate:
+            # Add unused pumps only if we need more flow
             remaining_unused = [pid for pid, _ in sorted_unused if pid not in selected_pumps]
             if remaining_unused and len(self.pumps_used) < len(self.pumps):
-                # Add one unused pump to ensure all pumps are used
-                pump_id = remaining_unused[0]
-                pump = self.pumps[pump_id]
-                flow = pump.calculate_flow_m3_per_15min(current_level)
-                total_flow += flow
-                selected_pumps.add(pump_id)
+                # Keep adding unused pumps until we meet target
+                # Big pumps are already first in remaining_unused
+                for pump_id in remaining_unused:
+                    if total_flow >= target_flowrate:
+                        break
+                    # New pump is starting, so half speed
+                    flow = get_expected_flow(pump_id, is_starting=True, is_stopping=False)
+                    total_flow += flow
+                    selected_pumps.add(pump_id)
         
         # Ensure at least one pump is always on
         if len(selected_pumps) == 0:

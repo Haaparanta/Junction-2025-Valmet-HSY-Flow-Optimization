@@ -445,21 +445,23 @@ def create_pump_flow_comparison_plot(simulator: Simulator, csv_data, time_hours,
         col = idx % 4
         ax = axes[row, col]
         
-        # Get simulated pump flow (already in m³/h)
-        sim_flows = data['pump_flows'][pump_id]
+        # Get simulated pump flow (stored in m³/h, convert to m³/15min)
+        sim_flows_m3h = data['pump_flows'][pump_id]
+        sim_flows = [flow / 4.0 for flow in sim_flows_m3h]  # Convert m³/h to m³/15min
         
         # Plot simulated flow
         ax.plot(time_hours, sim_flows, 'b-', linewidth=2, label='Simulated', alpha=0.8)
         
-        # Get CSV pump flow if available
+        # Get CSV pump flow if available (CSV flows are in m³/h, convert to m³/15min)
         if csv_data is not None:
             csv_column = f'Pump flow {pump_id}'
             if csv_column in csv_data.columns:
-                csv_flows = [safe_float_convert(x) for x in csv_data[csv_column].tolist()[:96]]
+                csv_flows_m3h = [safe_float_convert(x) for x in csv_data[csv_column].tolist()[:96]]
+                csv_flows = [flow / 4.0 for flow in csv_flows_m3h]  # Convert m³/h to m³/15min
                 ax.plot(time_hours, csv_flows, 'r--', linewidth=1.5, label='CSV', alpha=0.7)
         
         ax.set_xlabel('Time (hours)')
-        ax.set_ylabel('Flow (m³/h)')
+        ax.set_ylabel('Flow (m³/15min)')
         ax.set_title(f'Pump {pump_id}')
         ax.grid(True, alpha=0.3)
         ax.legend(fontsize=8)
