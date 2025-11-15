@@ -23,6 +23,9 @@ COPY Valmet-HSY-Docs/ /Valmet-HSY-Docs/
 # Set Python path
 ENV PYTHONPATH=/app
 
+# Cloud Run sets PORT environment variable, default to 8000 for local development
+ENV PORT=8000
+
 # Run FastAPI service
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD uvicorn api.main:app --host 0.0.0.0 --port ${PORT}
 

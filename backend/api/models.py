@@ -30,6 +30,7 @@ class SimulationResponse(BaseModel):
     """Complete simulation result."""
     id: str = Field(..., description="Simulation UUID")
     timestamp: datetime = Field(..., description="Simulation timestamp")
+    timestamps_24h: List[str] = Field(..., description="24h timestamps in ISO format, one every 15 minutes (96 values)")
     rain_forecast_24h: List[float] = Field(..., description="24h rain forecast in mm (96 values)")
     electricity_price_24h: List[float] = Field(..., description="24h electricity prices in EUR/kWh (96 values)")
     inflow_estimate_24h: List[float] = Field(..., description="24h inflow estimates in m³/15min (96 values)")

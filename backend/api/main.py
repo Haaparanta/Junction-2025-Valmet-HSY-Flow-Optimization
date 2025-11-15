@@ -2,7 +2,7 @@
 import sys
 from pathlib import Path
 from typing import List, Dict, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
@@ -108,10 +108,18 @@ def convert_simulator_to_response(
         )
         pumps_data.append(pump_data)
     
+    # Generate timestamps: 96 timestamps, one every 15 minutes starting from now
+    simulation_timestamp = datetime.utcnow()
+    timestamps_24h = [
+        (simulation_timestamp + timedelta(minutes=i * 15)).isoformat() + "Z"
+        for i in range(96)
+    ]
+    
     # Create response
     response = SimulationResponse(
         id=str(uuid4()),
-        timestamp=datetime.utcnow(),
+        timestamp=simulation_timestamp,
+        timestamps_24h=timestamps_24h,
         rain_forecast_24h=rain_forecast,
         electricity_price_24h=electricity_prices,
         inflow_estimate_24h=inflow_estimates,
