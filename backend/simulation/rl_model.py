@@ -1,3 +1,5 @@
+import os
+
 import torch
 import torch.nn as nn
 
@@ -68,7 +70,6 @@ class TransformerFlowPolicy(nn.Module):
         self.log_std = nn.Parameter(torch.zeros(output_len))
 
     def forward(self, x):
-        print(x.device, "does not match with", self.device)
         # x shape: [timestemp_count, feature_count] -> add batch dimension
         if x.dim() == 2:
             x = x.unsqueeze(0)  # [1, seq_len, feature_dim]
@@ -90,3 +91,8 @@ class TransformerFlowPolicy(nn.Module):
         action = dist.rsample()  # reparameterized sample
         log_prob = dist.log_prob(action).sum(dim=-1)  # [1]
         return action, log_prob
+
+    def load_weights(self):
+        self.load_state_dict(
+            torch.load(os.path.join(os.path.split(__file__)[0], "model_weights.pth"))
+        )
