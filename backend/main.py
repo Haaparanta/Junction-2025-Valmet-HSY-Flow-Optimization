@@ -150,6 +150,7 @@ def safe_float_convert(value):
 def plot_simulation_results(simulator: Simulator, csv_path: str = None):
     """
     Generate comprehensive plots of simulation results with comparison to CSV data.
+    Each plot is saved as a separate image file.
     
     Args:
         simulator: Simulator instance with completed simulation data
@@ -169,111 +170,228 @@ def plot_simulation_results(simulator: Simulator, csv_path: str = None):
             print(f"Warning: Could not load CSV data for comparison: {e}")
             csv_data = None
     
-    # Create figure with subplots (larger to accommodate comparison plots)
-    fig = plt.figure(figsize=(24, 20))
-    gs = fig.add_gridspec(5, 2, hspace=0.35, wspace=0.3)
+    # Use /app/output in Docker, or local output directory
+    output_dir = Path('/app/output') if Path('/app/output').exists() else Path(__file__).parent.parent / 'output'
+    output_dir.mkdir(exist_ok=True, parents=True)
     
-    # 1. Water Level over Time (with CSV comparison)
-    ax1 = fig.add_subplot(gs[0, 0])
-    ax1.plot(time_hours, data['water_levels'], 'b-', linewidth=2, label='Simulated Water Level', alpha=0.8)
+    # Create separate plots
+    plot_water_level(simulator, csv_data, time_hours, output_dir)
+    plot_volume(simulator, csv_data, time_hours, output_dir)
+    plot_inflow_outflow(simulator, csv_data, time_hours, output_dir)
+    plot_energy_prices(simulator, csv_data, time_hours, output_dir)
+    plot_cumulative_cost(simulator, time_hours, output_dir)
+    plot_time_step_costs(simulator, time_hours, output_dir)
+    plot_pump_states(simulator, csv_data, time_hours, output_dir)
+    create_pump_flow_comparison_plot(simulator, csv_data, time_hours, output_dir)
+    plot_pump_usage(simulator, output_dir)
+    
+    print(f"\nAll plots saved to: {output_dir}")
+
+
+def plot_water_level(simulator: Simulator, csv_data, time_hours, output_dir: Path):
+    """Plot water level over time."""
+    fig, ax = plt.subplots(figsize=(12, 6))
+    data = simulator.time_series_data
+    
+    ax.plot(time_hours, data['water_levels'], 'b-', linewidth=2, label='Simulated Water Level', alpha=0.8)
     if csv_data is not None:
         csv_levels = [safe_float_convert(x) for x in csv_data['Water level in tunnel L2'].tolist()[:96]]
-        ax1.plot(time_hours, csv_levels, 'b--', linewidth=1.5, label='CSV Water Level', alpha=0.6)
-    ax1.axhline(y=14.1, color='r', linestyle='--', linewidth=2, label='Max Level (14.1 m)')
-    ax1.axhline(y=0.5, color='orange', linestyle='--', linewidth=1, label='Min Target (0.5 m)')
-    ax1.set_xlabel('Time (hours)')
-    ax1.set_ylabel('Water Level (m)')
-    ax1.set_title('Water Level in Tunnel Over Time')
-    ax1.grid(True, alpha=0.3)
-    ax1.legend()
+        ax.plot(time_hours, csv_levels, 'b--', linewidth=1.5, label='CSV Water Level', alpha=0.6)
+    ax.axhline(y=14.1, color='r', linestyle='--', linewidth=2, label='Max Level (14.1 m)')
+    ax.axhline(y=0.5, color='orange', linestyle='--', linewidth=1, label='Min Target (0.5 m)')
+    ax.set_xlabel('Time (hours)')
+    ax.set_ylabel('Water Level (m)')
+    ax.set_title('Water Level in Tunnel Over Time')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
     
-    # 2. Volume over Time (with CSV comparison)
-    ax2 = fig.add_subplot(gs[0, 1])
-    ax2.plot(time_hours, data['volumes'], 'g-', linewidth=2, label='Simulated Volume', alpha=0.8)
+    plt.tight_layout()
+    plot_path = output_dir / 'water_level.png'
+    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+    print(f"Water level plot saved to: {plot_path}")
+    plt.close()
+
+
+def plot_volume(simulator: Simulator, csv_data, time_hours, output_dir: Path):
+    """Plot water volume over time."""
+    fig, ax = plt.subplots(figsize=(12, 6))
+    data = simulator.time_series_data
+    
+    ax.plot(time_hours, data['volumes'], 'g-', linewidth=2, label='Simulated Volume', alpha=0.8)
     if csv_data is not None:
         csv_volumes = [safe_float_convert(x) for x in csv_data['Water volume in tunnel V'].tolist()[:96]]
-        ax2.plot(time_hours, csv_volumes, 'g--', linewidth=1.5, label='CSV Volume', alpha=0.6)
-    ax2.set_xlabel('Time (hours)')
-    ax2.set_ylabel('Volume (m³)')
-    ax2.set_title('Water Volume in Tunnel Over Time')
-    ax2.grid(True, alpha=0.3)
-    ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x/1000:.1f}k'))
+        ax.plot(time_hours, csv_volumes, 'g--', linewidth=1.5, label='CSV Volume', alpha=0.6)
+    ax.set_xlabel('Time (hours)')
+    ax.set_ylabel('Volume (m³)')
+    ax.set_title('Water Volume in Tunnel Over Time')
+    ax.grid(True, alpha=0.3)
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x/1000:.1f}k'))
     if csv_data is not None:
-        ax2.legend()
+        ax.legend()
     
-    # 3. Inflow and Outflow (with CSV comparison)
-    ax3 = fig.add_subplot(gs[1, 0])
-    ax3.plot(time_hours, data['inflows'], 'b-', linewidth=2, label='Simulated Inflow', alpha=0.7)
-    ax3.plot(time_hours, data['outflows'], 'r-', linewidth=2, label='Simulated Outflow', alpha=0.7)
-    ax3.plot(time_hours, data['target_flowrates'], 'g--', linewidth=1.5, label='Target Flowrate', alpha=0.8)
+    plt.tight_layout()
+    plot_path = output_dir / 'volume.png'
+    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+    print(f"Volume plot saved to: {plot_path}")
+    plt.close()
+
+
+def plot_inflow_outflow(simulator: Simulator, csv_data, time_hours, output_dir: Path):
+    """Plot inflow and outflow over time."""
+    fig, ax = plt.subplots(figsize=(12, 6))
+    data = simulator.time_series_data
+    
+    # Lines behind others (lower zorder) get thicker lines to show through better
+    # CSV lines are behind everything (zorder=2) - thickest
     if csv_data is not None:
         csv_inflows = [safe_float_convert(x) for x in csv_data['Inflow to tunnel F1'].tolist()[:96]]
         csv_outflows = [safe_float_convert(x) for x in csv_data['Sum of pumped flow to WWTP F2'].tolist()[:96]]
         csv_outflows_15min = [x / 4.0 for x in csv_outflows]  # Convert m³/h to m³/15min
-        ax3.plot(time_hours, csv_inflows, 'b--', linewidth=1.5, label='CSV Inflow', alpha=0.5)
-        ax3.plot(time_hours, csv_outflows_15min, 'r--', linewidth=1.5, label='CSV Outflow', alpha=0.5)
-    ax3.set_xlabel('Time (hours)')
-    ax3.set_ylabel('Flow Rate (m³/15min)')
-    ax3.set_title('Inflow vs Outflow vs Target Flowrate')
-    ax3.grid(True, alpha=0.3)
-    ax3.legend()
+        ax.plot(time_hours, csv_inflows, '--', linewidth=4.0, label='CSV Inflow', alpha=0.8, zorder=2, color='#4169E1')
+        ax.plot(time_hours, csv_outflows_15min, '--', linewidth=4.0, label='CSV Outflow', alpha=0.8, zorder=2, color='#DC143C')
     
-    # 4. Energy Prices (with CSV comparison)
-    ax4 = fig.add_subplot(gs[1, 1])
-    ax4.plot(time_hours, data['energy_prices'], 'purple', linewidth=2, marker='o', markersize=3, label='Simulated Energy Price', alpha=0.8)
+    # Simulated lines are in the middle (zorder=3) - medium thickness
+    ax.plot(time_hours, data['inflows'], 'b-', linewidth=2.5, label='Simulated Inflow', alpha=0.9, zorder=3)
+    ax.plot(time_hours, data['outflows'], 'r-', linewidth=2.5, label='Simulated Outflow', alpha=0.9, zorder=3)
+    
+    # Target Flowrate is on top (zorder=4) - thinnest since it doesn't need to show through
+    ax.plot(time_hours, data['target_flowrates'], 'g--', linewidth=2.0, label='Target Flowrate', alpha=0.9, zorder=4)
+    
+    ax.set_xlabel('Time (hours)', fontsize=12)
+    ax.set_ylabel('Flow Rate (m³/15min)', fontsize=12)
+    ax.set_title('Inflow vs Outflow vs Target Flowrate', fontsize=14, fontweight='bold')
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc='best', fontsize=10, framealpha=0.9)
+    
+    plt.tight_layout()
+    plot_path = output_dir / 'inflow_outflow.png'
+    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+    print(f"Inflow/outflow plot saved to: {plot_path}")
+    plt.close()
+
+
+def plot_energy_prices(simulator: Simulator, csv_data, time_hours, output_dir: Path):
+    """Plot energy prices over time."""
+    fig, ax = plt.subplots(figsize=(12, 6))
+    data = simulator.time_series_data
+    
+    ax.plot(time_hours, data['energy_prices'], 'purple', linewidth=2, marker='o', markersize=3, label='Simulated Energy Price', alpha=0.8)
     if csv_data is not None:
         csv_energy_prices = [safe_float_convert(x) for x in csv_data['Electricity price 2: normal'].tolist()[:96]]
         csv_energy_prices_eur = [x / 100.0 for x in csv_energy_prices]  # Convert from snt to EUR
-        ax4.plot(time_hours, csv_energy_prices_eur, 'purple', linewidth=1.5, linestyle='--', label='CSV Energy Price', alpha=0.6)
-    ax4.set_xlabel('Time (hours)')
-    ax4.set_ylabel('Energy Price (EUR/kWh)')
-    ax4.set_title('Energy Prices Over Time')
-    ax4.grid(True, alpha=0.3)
+        ax.plot(time_hours, csv_energy_prices_eur, 'purple', linewidth=1.5, linestyle='--', label='CSV Energy Price', alpha=0.6)
+    ax.set_xlabel('Time (hours)')
+    ax.set_ylabel('Energy Price (EUR/kWh)')
+    ax.set_title('Energy Prices Over Time')
+    ax.grid(True, alpha=0.3)
     if csv_data is not None:
-        ax4.legend()
+        ax.legend()
     
-    # 5. Cumulative Cost
-    ax5 = fig.add_subplot(gs[2, 0])
-    ax5.plot(time_hours, data['cumulative_costs'], 'darkgreen', linewidth=2)
-    ax5.set_xlabel('Time (hours)')
-    ax5.set_ylabel('Cumulative Cost (EUR)')
-    ax5.set_title('Cumulative Cost Over Time')
-    ax5.grid(True, alpha=0.3)
-    ax5.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x/1000:.1f}k'))
-    
-    # 6. Time Step Costs
-    ax6 = fig.add_subplot(gs[2, 1])
-    ax6.bar(time_hours, data['costs'], width=0.25, alpha=0.7, color='orange')
-    ax6.set_xlabel('Time (hours)')
-    ax6.set_ylabel('Cost per Time Step (EUR)')
-    ax6.set_title('Cost per 15-Minute Period')
-    ax6.grid(True, alpha=0.3, axis='y')
-    
-    # 7. Pump States (Heatmap)
-    ax7 = fig.add_subplot(gs[3, :])
-    pump_ids = sorted(simulator.pumps.keys())
-    pump_state_matrix = np.array([data['pump_states'][pid] for pid in pump_ids])
-    
-    im = ax7.imshow(pump_state_matrix, aspect='auto', cmap='RdYlGn', interpolation='nearest',
-                    extent=[0, 24, 0, len(pump_ids)], vmin=0, vmax=1)
-    ax7.set_xlabel('Time (hours)')
-    ax7.set_ylabel('Pump ID')
-    ax7.set_yticks(np.arange(len(pump_ids)) + 0.5)
-    ax7.set_yticklabels(pump_ids)
-    ax7.set_title('Pump States Over Time (Green=On, Red=Off)')
-    cbar = plt.colorbar(im, ax=ax7, ticks=[0, 1])
-    cbar.set_label('State (0=Off, 1=On)')
-    
-    # Save figure
-    # Use /app/output in Docker, or local output directory
-    output_dir = Path('/app/output') if Path('/app/output').exists() else Path(__file__).parent.parent / 'output'
-    output_dir.mkdir(exist_ok=True, parents=True)
-    plot_path = output_dir / 'simulation_results.png'
+    plt.tight_layout()
+    plot_path = output_dir / 'energy_prices.png'
     plt.savefig(plot_path, dpi=150, bbox_inches='tight')
-    print(f"Plots saved to: {plot_path}")
+    print(f"Energy prices plot saved to: {plot_path}")
+    plt.close()
+
+
+def plot_cumulative_cost(simulator: Simulator, time_hours, output_dir: Path):
+    """Plot cumulative cost over time."""
+    fig, ax = plt.subplots(figsize=(12, 6))
+    data = simulator.time_series_data
     
-    # Also create a detailed pump usage plot
-    fig2, ax = plt.subplots(figsize=(14, 8))
+    ax.plot(time_hours, data['cumulative_costs'], 'darkgreen', linewidth=2)
+    ax.set_xlabel('Time (hours)')
+    ax.set_ylabel('Cumulative Cost (EUR)')
+    ax.set_title('Cumulative Cost Over Time')
+    ax.grid(True, alpha=0.3)
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x/1000:.1f}k'))
+    
+    plt.tight_layout()
+    plot_path = output_dir / 'cumulative_cost.png'
+    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+    print(f"Cumulative cost plot saved to: {plot_path}")
+    plt.close()
+
+
+def plot_time_step_costs(simulator: Simulator, time_hours, output_dir: Path):
+    """Plot cost per time step."""
+    fig, ax = plt.subplots(figsize=(12, 6))
+    data = simulator.time_series_data
+    
+    ax.bar(time_hours, data['costs'], width=0.25, alpha=0.7, color='orange')
+    ax.set_xlabel('Time (hours)')
+    ax.set_ylabel('Cost per Time Step (EUR)')
+    ax.set_title('Cost per 15-Minute Period')
+    ax.grid(True, alpha=0.3, axis='y')
+    
+    plt.tight_layout()
+    plot_path = output_dir / 'time_step_costs.png'
+    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+    print(f"Time step costs plot saved to: {plot_path}")
+    plt.close()
+
+
+def plot_pump_states(simulator: Simulator, csv_data, time_hours, output_dir: Path):
+    """Plot pump states comparison (simulated vs CSV)."""
+    pump_ids = sorted(simulator.pumps.keys())
+    data = simulator.time_series_data
+    
+    # Create figure with two subplots side by side
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 6))
+    
+    # Simulated pump states
+    pump_state_matrix_sim = np.array([data['pump_states'][pid] for pid in pump_ids])
+    im_sim = ax1.imshow(pump_state_matrix_sim, aspect='auto', cmap='RdYlGn', interpolation='nearest',
+                        extent=[0, 24, 0, len(pump_ids)], vmin=0, vmax=1)
+    ax1.set_xlabel('Time (hours)')
+    ax1.set_ylabel('Pump ID')
+    ax1.set_yticks(np.arange(len(pump_ids)) + 0.5)
+    ax1.set_yticklabels(pump_ids)
+    ax1.set_title('Simulated Pump States (Green=On, Red=Off)')
+    cbar_sim = plt.colorbar(im_sim, ax=ax1, ticks=[0, 1])
+    cbar_sim.set_label('State (0=Off, 1=On)')
+    
+    # CSV pump states (inferred from pump flows)
+    if csv_data is not None:
+        # Extract pump states from CSV flows (flow > 0 means pump is on)
+        csv_pump_states = {}
+        for pump_id in pump_ids:
+            csv_column = f'Pump flow {pump_id}'
+            if csv_column in csv_data.columns:
+                csv_flows = [safe_float_convert(x) for x in csv_data[csv_column].tolist()[:96]]
+                # Pump is on if flow > 0, off if flow == 0
+                csv_pump_states[pump_id] = [1.0 if flow > 0 else 0.0 for flow in csv_flows]
+            else:
+                # If column doesn't exist, assume all off
+                csv_pump_states[pump_id] = [0.0] * 96
+        
+        pump_state_matrix_csv = np.array([csv_pump_states[pid] for pid in pump_ids])
+        im_csv = ax2.imshow(pump_state_matrix_csv, aspect='auto', cmap='RdYlGn', interpolation='nearest',
+                            extent=[0, 24, 0, len(pump_ids)], vmin=0, vmax=1)
+        ax2.set_xlabel('Time (hours)')
+        ax2.set_ylabel('Pump ID')
+        ax2.set_yticks(np.arange(len(pump_ids)) + 0.5)
+        ax2.set_yticklabels(pump_ids)
+        ax2.set_title('CSV Pump States (Green=On, Red=Off)')
+        cbar_csv = plt.colorbar(im_csv, ax=ax2, ticks=[0, 1])
+        cbar_csv.set_label('State (0=Off, 1=On)')
+    else:
+        ax2.text(0.5, 0.5, 'No CSV data available', ha='center', va='center', transform=ax2.transAxes)
+        ax2.set_title('CSV Pump States (No Data)')
+        ax2.axis('off')
+    
+    plt.tight_layout()
+    plot_path = output_dir / 'pump_states.png'
+    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+    print(f"Pump states plot saved to: {plot_path}")
+    plt.close()
+
+
+def plot_pump_usage(simulator: Simulator, output_dir: Path):
+    """Plot pump usage time distribution."""
+    pump_ids = sorted(simulator.pumps.keys())
+    fig, ax = plt.subplots(figsize=(14, 8))
+    
     pump_usage_data = [simulator.pumps[pid].get_usage_time() / 60.0 for pid in pump_ids]
     # Small pumps: 1.1, 2.1; Big pumps: 1.2, 1.3, 1.4, 2.2, 2.3, 2.4
     colors = ['#2ecc71' if pid in ['1.1', '2.1'] else '#3498db' for pid in pump_ids]
@@ -298,11 +416,59 @@ def plot_simulation_results(simulator: Simulator, csv_path: str = None):
     ]
     ax.legend(handles=legend_elements, loc='upper right')
     
+    plt.tight_layout()
     pump_plot_path = output_dir / 'pump_usage.png'
     plt.savefig(pump_plot_path, dpi=150, bbox_inches='tight')
     print(f"Pump usage plot saved to: {pump_plot_path}")
+    plt.close()
+
+
+def create_pump_flow_comparison_plot(simulator: Simulator, csv_data, time_hours, output_dir: Path):
+    """
+    Create a plot comparing pump flows from CSV and simulator.
     
-    plt.close('all')
+    Args:
+        simulator: Simulator instance with completed simulation data
+        csv_data: CSV DataFrame with historical data (or None)
+        time_hours: Array of time values in hours
+        output_dir: Directory to save the plot
+    """
+    pump_ids = sorted(simulator.pumps.keys())
+    data = simulator.time_series_data
+    
+    # Create figure with subplots for each pump (2 rows x 4 columns for 8 pumps)
+    fig, axes = plt.subplots(2, 4, figsize=(20, 10))
+    fig.suptitle('Pump Flow Comparison: CSV vs Simulator', fontsize=16, fontweight='bold')
+    
+    for idx, pump_id in enumerate(pump_ids):
+        row = idx // 4
+        col = idx % 4
+        ax = axes[row, col]
+        
+        # Get simulated pump flow (already in m³/h)
+        sim_flows = data['pump_flows'][pump_id]
+        
+        # Plot simulated flow
+        ax.plot(time_hours, sim_flows, 'b-', linewidth=2, label='Simulated', alpha=0.8)
+        
+        # Get CSV pump flow if available
+        if csv_data is not None:
+            csv_column = f'Pump flow {pump_id}'
+            if csv_column in csv_data.columns:
+                csv_flows = [safe_float_convert(x) for x in csv_data[csv_column].tolist()[:96]]
+                ax.plot(time_hours, csv_flows, 'r--', linewidth=1.5, label='CSV', alpha=0.7)
+        
+        ax.set_xlabel('Time (hours)')
+        ax.set_ylabel('Flow (m³/h)')
+        ax.set_title(f'Pump {pump_id}')
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=8)
+    
+    plt.tight_layout()
+    pump_flow_plot_path = output_dir / 'pump_flow_comparison.png'
+    plt.savefig(pump_flow_plot_path, dpi=150, bbox_inches='tight')
+    print(f"Pump flow comparison plot saved to: {pump_flow_plot_path}")
+    plt.close()
 
 
 if __name__ == '__main__':

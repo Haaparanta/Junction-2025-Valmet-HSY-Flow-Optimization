@@ -92,7 +92,8 @@ class Simulator:
             'target_flowrates': [],
             'costs': [],
             'cumulative_costs': [],
-            'pump_states': {pump_id: [] for pump_id in self.pumps.keys()}
+            'pump_states': {pump_id: [] for pump_id in self.pumps.keys()},
+            'pump_flows': {pump_id: [] for pump_id in self.pumps.keys()}  # Flow in m³/h
         }
     
     def _select_pumps(self, target_flowrate: float, current_level: float, time_step: int) -> Set[str]:
@@ -105,8 +106,8 @@ class Simulator:
         3. Calculate flow from pumps that must stay on
         4. If more flow needed, add pumps starting from least-used until target is met
         5. Ensure at least one pump is always on
-        
-        Args:
+    
+    Args:
             target_flowrate: Target flowrate in m³/15min
             current_level: Current water level L1 in meters
             time_step: Current time step (for checking runtime)
@@ -209,15 +210,14 @@ class Simulator:
                     selected_pumps.add(pump_id)
         
         # Combine: unused first (always prioritized), then used (both sorted by usage time)
-        # Sort used pumps by usage time (ascending) to balance usage
         sorted_used_by_usage = sorted(used_pumps, key=lambda x: x[1].get_usage_time())
         sorted_available = sorted_unused + sorted_used_by_usage
         
         # Add pumps until we're close to target (allow rounding down if close enough)
         # Always prioritize unused pumps first - they get selected before used pumps
-        # Then select used pumps starting with least-used ones for better balance
-        # Allow rounding down if we're within 5% of target
-        tolerance = target_flowrate * 0.05  # 5% tolerance
+        # Then select used pumps starting with least-used ones
+        # Allow rounding down if we're within tolerance of target
+        tolerance = target_flowrate * 0.15  # 15% tolerance
         
         for pump_id, pump in sorted_available:
             # Check if adding this pump would exceed target significantly
@@ -243,47 +243,6 @@ class Simulator:
                 # Still far from target, add the pump
                 total_flow = new_total
                 selected_pumps.add(pump_id)
-        
-        # Balance pump usage: if there's a big imbalance, prefer less-used pumps
-        # Calculate usage statistics
-        if len(self.pumps_used) > 0:
-            usage_times = [self.pumps[pid].get_usage_time() for pid in self.pumps.keys() if pid in self.pumps_used]
-            if usage_times:
-                avg_usage = sum(usage_times) / len(usage_times)
-                max_usage = max(usage_times)
-                
-                # If max usage is significantly higher than average, try to use less-used pumps
-                if max_usage > avg_usage * 1.5:  # 50% more than average
-                    # Find pumps with usage below average (from all pumps, not just available)
-                    underused_pumps = [
-                        (pid, self.pumps[pid]) for pid in self.pumps.keys()
-                        if pid not in selected_pumps and pid in self.pumps_used
-                        and self.pumps[pid].get_usage_time() < avg_usage
-                    ]
-                    if underused_pumps:
-                        # Sort by usage (lowest first)
-                        underused_pumps.sort(key=lambda x: x[1].get_usage_time())
-                        # Replace one overused pump with an underused one if possible
-                        # But only if we're not violating minimum runtime
-                        overused_pumps_in_selection = [
-                            pid for pid in selected_pumps
-                            if pid in self.pumps_used and self.pumps[pid].get_usage_time() > avg_usage * 1.3
-                            and pid in pumps_can_turn_off  # Can be turned off
-                        ]
-                        if overused_pumps_in_selection and underused_pumps:
-                            # Replace one overused pump with an underused one
-                            pump_to_remove = overused_pumps_in_selection[0]
-                            pump_to_add, pump_obj = underused_pumps[0]
-                            
-                            # Only swap if it doesn't violate minimum runtime
-                            if pump_to_remove in pumps_can_turn_off:
-                                selected_pumps.remove(pump_to_remove)
-                                flow_removed = self.pumps[pump_to_remove].calculate_flow_m3_per_15min(current_level)
-                                total_flow -= flow_removed
-                                
-                                selected_pumps.add(pump_to_add)
-                                flow_added = pump_obj.calculate_flow_m3_per_15min(current_level)
-                                total_flow += flow_added
         
         # If we still have unused pumps and haven't met target, add them anyway
         # This ensures unused pumps get a chance even if target is already met
@@ -369,8 +328,8 @@ class Simulator:
         Args:
             inflow: Inflow in m³/15min
             outflow: Outflow in m³/15min
-            
-        Returns:
+        
+    Returns:
             New water level in meters
         """
         # Calculate volume change
@@ -451,7 +410,8 @@ class Simulator:
             'target_flowrates': [],
             'costs': [],
             'cumulative_costs': [],
-            'pump_states': {pump_id: [] for pump_id in self.pumps.keys()}
+            'pump_states': {pump_id: [] for pump_id in self.pumps.keys()},
+            'pump_flows': {pump_id: [] for pump_id in self.pumps.keys()}  # Flow in m³/h
         }
         
         # Main simulation loop
@@ -464,9 +424,39 @@ class Simulator:
             # Select pumps to meet target flowrate (respecting minimum runtime)
             pumps_on = self._select_pumps(target_flowrate, self.current_water_level, time_step)
             
+            # Calculate speed factor for each pump
+            # Pump speed is halved when starting (first period after turn-on) and when stopping (last period before turn-off)
+            pump_speed_factors = {}
+            for pump_id in self.pumps.keys():
+                is_on = pump_id in pumps_on
+                was_on = (
+                    len(self.pump_state_history[pump_id]) > 0 and
+                    self.pump_state_history[pump_id][-1]
+                ) if len(self.pump_state_history[pump_id]) > 0 else False
+                
+                speed_factor = 1.0
+                if is_on:
+                    # Check if pump is starting (just turned on this period)
+                    if not was_on:
+                        speed_factor = 0.5  # Starting: half speed in first period
+                    # Check if pump is stopping (last period before turn-off)
+                    # A pump is stopping if it was on, has completed minimum runtime,
+                    # and we need to check if it will be turned off next period
+                    # Since we can't know the future, we'll check if pump has been on for minimum runtime
+                    # and might be turned off (heuristic: if it's been on for exactly minimum runtime, it might stop soon)
+                    elif was_on and pump_id in self.pump_turn_on_time:
+                        turn_on_time = self.pump_turn_on_time[pump_id]
+                        runtime_periods = time_step - turn_on_time
+                        # If pump has completed minimum runtime, it can potentially be turned off
+                        # Apply half speed if it's been on for exactly minimum runtime (last period before possible turn-off)
+                        if runtime_periods == MINIMUM_RUNTIME_PERIODS:
+                            speed_factor = 0.5  # Stopping: half speed (might be turned off soon)
+                
+                pump_speed_factors[pump_id] = speed_factor
+            
             # Calculate actual outflow from selected pumps
             total_outflow = sum(
-                self.pumps[pump_id].calculate_flow_m3_per_15min(self.current_water_level)
+                self.pumps[pump_id].calculate_flow_m3_per_15min(self.current_water_level) * pump_speed_factors[pump_id]
                 for pump_id in pumps_on
             )
             
@@ -529,9 +519,18 @@ class Simulator:
             self.time_series_data['costs'].append(step_cost + runtime_penalty + (level_penalty if not is_valid_level else 0.0))
             self.time_series_data['cumulative_costs'].append(self.total_cost)
             
-            # Store pump states
+            # Store pump states and flows
             for pump_id in self.pumps.keys():
-                self.time_series_data['pump_states'][pump_id].append(1.0 if pump_id in pumps_on else 0.0)
+                is_on = pump_id in pumps_on
+                self.time_series_data['pump_states'][pump_id].append(1.0 if is_on else 0.0)
+                # Calculate pump flow in m³/h (convert from m³/15min by multiplying by 4)
+                # Use the speed factor calculated earlier
+                if is_on:
+                    flow_15min = self.pumps[pump_id].calculate_flow_m3_per_15min(self.current_water_level) * pump_speed_factors[pump_id]
+                    flow_m3h = flow_15min * 4.0  # Convert to m³/h
+                else:
+                    flow_m3h = 0.0
+                self.time_series_data['pump_flows'][pump_id].append(flow_m3h)
         
         # Final check for minimum runtime violations at end of simulation
         # Check if any pumps are still running but haven't completed minimum runtime
