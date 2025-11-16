@@ -62,7 +62,7 @@ class Simulator:
         self.water_inflows = water_inflows
         self.target_flowrates = target_flowrates
 
-        print("water level:", self.starting_water_level)
+        # print("water level:", self.starting_water_level)
 
         # Initialize pumps: 6 big pumps + 2 small pumps
         # Big pumps: 1.2, 1.3, 1.4, 2.2, 2.3, 2.4
