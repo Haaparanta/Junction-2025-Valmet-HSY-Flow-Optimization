@@ -140,6 +140,7 @@ def fetch_rain_forecast_24h(station_id: int = 852678) -> List[float]:
 def calculate_average_daily_inflow() -> List[float]:
     """
     Calculate average daily inflow pattern from CSV historical data.
+    Uses first 5 days of data, shifted to start from current hour.
     
     Returns:
         List of 96 average inflow values in m³/15min (one per 15-min period)
@@ -159,18 +160,31 @@ def calculate_average_daily_inflow() -> List[float]:
         if not pd.api.types.is_datetime64_any_dtype(df['Time stamp']):
             df['Time stamp'] = pd.to_datetime(df['Time stamp'], errors='coerce')
         
-        # Extract hour and minute
-        df['hour'] = df['Time stamp'].dt.hour
-        df['minute'] = df['Time stamp'].dt.minute
-        
-        # Group by hour and minute (0, 15, 30, 45)
-        df['period'] = df['hour'] * 4 + (df['minute'] // 15)
-        
-        # Calculate average inflow for each 15-min period
         if 'Inflow to tunnel F1' not in df.columns:
             raise ValueError("CSV file missing 'Inflow to tunnel F1' column")
         
-        avg_inflows = df.groupby('period')['Inflow to tunnel F1'].mean()
+        # Get current hour to align the data
+        current_hour = datetime.now().hour
+        current_minute = (datetime.now().minute // 15) * 15  # Round to nearest 15-min
+        current_period = current_hour * 4 + (current_minute // 15)
+        
+        # Take only first 5 days (5 * 96 = 480 periods)
+        df_first_5_days = df.head(480).copy()
+        
+        # Extract hour and minute
+        df_first_5_days['hour'] = df_first_5_days['Time stamp'].dt.hour
+        df_first_5_days['minute'] = df_first_5_days['Time stamp'].dt.minute
+        df_first_5_days['period'] = df_first_5_days['hour'] * 4 + (df_first_5_days['minute'] // 15)
+        
+        # Get the starting period from the first row
+        first_period = df_first_5_days['period'].iloc[0]
+        
+        # Shift periods so they start from current_period
+        shift_amount = current_period - first_period
+        df_first_5_days['shifted_period'] = (df_first_5_days['period'] + shift_amount) % 96
+        
+        # Average by shifted period
+        avg_inflows = df_first_5_days.groupby('shifted_period')['Inflow to tunnel F1'].mean()
         
         # Create list of 96 values (24 hours * 4 periods)
         result = []
@@ -179,7 +193,7 @@ def calculate_average_daily_inflow() -> List[float]:
                 result.append(float(avg_inflows[period]))
             else:
                 # Use overall average if period not found
-                overall_avg = df['Inflow to tunnel F1'].mean()
+                overall_avg = df_first_5_days['Inflow to tunnel F1'].mean()
                 result.append(float(overall_avg) if pd.notna(overall_avg) else 0.0)
         
         return result
@@ -317,4 +331,86 @@ def get_starting_water_level() -> float:
         print(f"Warning: Could not get starting water level: {e}")
         # Fallback: return a safe default
         return 5.0  # Default 5 meters
+
+
+def get_historical_pump_heights() -> List[float]:
+    """
+    Get last 4 water level readings from CSV (1 hour history at 15-min intervals).
+    
+    Returns:
+        List of 4 water levels in meters (oldest to newest)
+    """
+    try:
+        csv_path = get_csv_path()
+        if not os.path.exists(csv_path):
+            raise FileNotFoundError(f"CSV file not found at {csv_path}")
+        
+        df = read_csv_with_european_format(csv_path)
+        
+        if 'Water level in tunnel L2' not in df.columns:
+            raise ValueError("CSV file missing 'Water level in tunnel L2' column")
+        
+        # Get last 4 values (1 hour of history)
+        last_4_levels = df['Water level in tunnel L2'].iloc[-4:].tolist()
+        
+        # If we have fewer than 4 values, pad with the first value
+        while len(last_4_levels) < 4:
+            if last_4_levels:
+                last_4_levels.insert(0, last_4_levels[0])
+            else:
+                last_4_levels.append(5.0)
+        
+        return [float(level) for level in last_4_levels]
+        
+    except Exception as e:
+        print(f"Warning: Could not get historical pump heights: {e}")
+        # Fallback: return default values
+        return [5.0, 5.0, 5.0, 5.0]
+
+
+def get_historical_flow_rates() -> List[float]:
+    """
+    Get last 4 total flow rate readings from CSV (1 hour history at 15-min intervals).
+    Calculates total flow from all pumps.
+    
+    Returns:
+        List of 4 flow rates in m³/15min (oldest to newest)
+    """
+    try:
+        csv_path = get_csv_path()
+        if not os.path.exists(csv_path):
+            raise FileNotFoundError(f"CSV file not found at {csv_path}")
+        
+        df = read_csv_with_european_format(csv_path)
+        
+        # List of all pump flow columns
+        pump_columns = [
+            'Pump flow 1.1', 'Pump flow 1.2', 'Pump flow 1.3', 'Pump flow 1.4',
+            'Pump flow 2.1', 'Pump flow 2.2', 'Pump flow 2.3', 'Pump flow 2.4'
+        ]
+        
+        # Check if all pump columns exist
+        missing_columns = [col for col in pump_columns if col not in df.columns]
+        if missing_columns:
+            raise ValueError(f"CSV file missing pump flow columns: {missing_columns}")
+        
+        # Calculate total flow for each row
+        df['total_flow'] = df[pump_columns].sum(axis=1)
+        
+        # Get last 4 values (1 hour of history)
+        last_4_flows = df['total_flow'].iloc[-4:].tolist()
+        
+        # If we have fewer than 4 values, pad with the first value
+        while len(last_4_flows) < 4:
+            if last_4_flows:
+                last_4_flows.insert(0, last_4_flows[0])
+            else:
+                last_4_flows.append(300.0)  # Default ~300 m³/15min
+        
+        return [float(flow) for flow in last_4_flows]
+        
+    except Exception as e:
+        print(f"Warning: Could not get historical flow rates: {e}")
+        # Fallback: return default values
+        return [300.0, 300.0, 300.0, 300.0]
 

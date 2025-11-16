@@ -24,12 +24,23 @@ from .data_fetcher import (
     fetch_rain_forecast_24h,
     fetch_electricity_prices_24h,
     calculate_average_daily_inflow,
-    get_starting_water_level
+    get_starting_water_level,
+    get_historical_pump_heights,
+    get_historical_flow_rates
 )
 
 # Add parent directory to path to import simulation modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from simulation.simulator import Simulator
+from simulation.rl_model import TransformerFlowPolicy, input_tensor
+from simulation.tunnel import calculate_volume_from_level, VD_MAX
+
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    print("Warning: PyTorch not available, falling back to heuristic target flowrates")
 
 app = FastAPI(
     title="Simulation API",
@@ -51,6 +62,91 @@ app.add_middleware(
 
 # Create API router with /api prefix
 api_router = APIRouter(prefix="/api")
+
+# Global model instance (lazy loaded)
+_ai_model = None
+
+
+def get_ai_model() -> Optional[TransformerFlowPolicy]:
+    """Get or load the AI model for target flowrate prediction."""
+    global _ai_model
+    if not TORCH_AVAILABLE:
+        return None
+    
+    if _ai_model is None:
+        try:
+            _ai_model = TransformerFlowPolicy(input_shape=[96, 11])
+            _ai_model.load_weights()
+            _ai_model.eval()
+            print("AI model loaded successfully")
+        except Exception as e:
+            print(f"Warning: Could not load AI model: {e}")
+            return None
+    
+    return _ai_model
+
+
+def calculate_ai_target_flowrates(
+    starting_water_level: float,
+    electricity_prices: List[float],
+    inflow_estimates: List[float]
+) -> List[float]:
+    """
+    Calculate optimal target flowrates using the AI model.
+    
+    Args:
+        starting_water_level: Starting water level in meters
+        electricity_prices: 96 electricity prices in EUR/kWh
+        inflow_estimates: 96 inflow estimates in m³/15min
+        
+    Returns:
+        List of 96 target flowrates in m³/15min
+    """
+    model = get_ai_model()
+    if model is None:
+        # Fallback to heuristic
+        return [inflow * 1.1 for inflow in inflow_estimates]
+    
+    try:
+        # Get historical data from CSV file
+        previous_pump_height = get_historical_pump_heights()
+        previous_flow_rate = get_historical_flow_rates()
+        
+        # Calculate current fill percentage
+        current_volume = calculate_volume_from_level(starting_water_level)
+        current_fill_percent = current_volume / VD_MAX
+        
+        # Create input tensor
+        input_data = input_tensor(
+            previous_pump_height,
+            current_fill_percent,
+            electricity_prices,
+            inflow_estimates,
+            previous_flow_rate
+        )
+        
+        # Generate prediction
+        if not TORCH_AVAILABLE:
+            raise RuntimeError("PyTorch is required but not available")
+        
+        with torch.no_grad():
+            # Model outputs normalized values (0-1)
+            normalized_flowrates = model.forward(input_data)
+            
+            # Scale to actual flowrates
+            # Max system capacity: 16,000 m³/h → 4,000 m³/15min
+            target_flowrates = (normalized_flowrates * 4000.0).tolist()
+            
+            # Ensure we have exactly 96 values
+            if len(target_flowrates) != 96:
+                raise ValueError(f"Model returned {len(target_flowrates)} values, expected 96")
+            
+            return target_flowrates
+            
+    except Exception as e:
+        print(f"Warning: AI model prediction failed: {e}")
+        # Fallback to heuristic
+        return [inflow * 1.1 for inflow in inflow_estimates]
 
 
 def convert_simulator_to_response(
@@ -247,11 +343,19 @@ async def create_simulation(request: Optional[SimulationRequest] = None) -> Simu
         
         # Derive target flowrates from inflow if not provided or invalid
         if request is None or request.target_flowrates is None:
-            # Use inflow * 1.1 as buffer
-            target_flowrates = [inflow * 1.1 for inflow in inflow_estimates]
+            # Use AI model to calculate optimal target flowrates
+            target_flowrates = calculate_ai_target_flowrates(
+                starting_water_level,
+                electricity_prices,
+                inflow_estimates
+            )
         elif len(request.target_flowrates) != 96:
-            # If provided but wrong length, derive from inflow instead of erroring
-            target_flowrates = [inflow * 1.1 for inflow in inflow_estimates]
+            # If provided but wrong length, use AI model instead of erroring
+            target_flowrates = calculate_ai_target_flowrates(
+                starting_water_level,
+                electricity_prices,
+                inflow_estimates
+            )
         else:
             target_flowrates = request.target_flowrates
         
@@ -268,7 +372,7 @@ async def create_simulation(request: Optional[SimulationRequest] = None) -> Simu
         
         # Generate simulation ID and name
         simulation_id = str(uuid4())
-        simulation_timestamp = datetime.utcnow()
+        simulation_timestamp = datetime.now()
         
         # Generate name from timestamp if not provided
         if request is not None and request.name is not None:
