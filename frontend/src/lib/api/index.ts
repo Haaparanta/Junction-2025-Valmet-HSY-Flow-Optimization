@@ -1,7 +1,7 @@
 import toast from 'svelte-french-toast'
 
-export const backend_url = 'https://pumptech.surf/api'
-// export const backend_url = 'http://localhost:8000/api'
+// export const backend_url = 'https://pumptech.surf/api'
+export const backend_url = 'http://localhost:8000/api'
 
 type PumpStrategy = {
   '1.1': boolean
