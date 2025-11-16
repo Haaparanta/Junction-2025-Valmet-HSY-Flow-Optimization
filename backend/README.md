@@ -1,0 +1,16 @@
+# Backend - Wastewater Tunnel Flow Optimization System
+
+Backend services for intelligent wastewater tunnel pump optimization, combining real-time data integration, reinforcement learning models, and industrial OPC UA connectivity to minimize operational costs while maintaining system constraints.
+
+## API (`api/`)
+
+FastAPI REST API providing simulation management endpoints for 24-hour pump scheduling optimization. The API automatically fetches real-time weather forecasts from FMI, electricity prices from Spot-hinta API, and historical inflow patterns from CSV data. It integrates with a Transformer-based reinforcement learning model to predict optimal target flowrates, then executes simulations using the core simulation engine. Results are stored in SQLite database with in-memory caching for fast access. The API exposes endpoints for creating simulations, retrieving historical results, and accessing individual data components (rain forecasts, electricity prices, water levels, pump strategies, costs). All endpoints support CORS and include comprehensive error handling with automatic fallback mechanisms when external data sources are unavailable.
+
+## OPC UA (`opc_ua/`)
+
+Industrial OPC UA integration layer connecting the optimization system with PLC/SCADA equipment controllers. The OPC UA server exposes optimization results, system state variables, and pump recommendations through a standardized address space that industrial systems can read. The OPC UA client connects to physical equipment to read sensor data (water levels, pump states, flow rates) and write control commands. A control loop manages bidirectional communication with safety interlocks, periodically reading sensors, checking safety conditions (water level limits, minimum runtime), triggering optimizations, and executing pump commands. The bridge component synchronizes simulation results to OPC UA nodes and provides pump control methods with safety checks. Supports both advisory mode (recommendations only) and closed-loop mode (automatic control) with configurable safety limits and update intervals.
+
+## Simulation (`simulation/`)
+
+Core simulation engine implementing 24-hour wastewater tunnel optimization with intelligent pump scheduling algorithms. The simulator runs 96 time steps (15-minute intervals) respecting minimum runtime constraints, tracking water levels, calculating energy costs, and validating system constraints. Pump models use performance curves to calculate flow rates based on water level (head) and track power consumption for different pump types (400kW big pumps, 250kW small pumps). The tunnel physics module implements piecewise volume-to-level conversion formulas for different depth ranges with binary search inverse conversion. A Transformer-based reinforcement learning model predicts optimal flow rates from electricity prices, inflow estimates, and historical pump states using policy gradient learning. Training scripts process CSV historical data, run parallel batch simulations, and optimize the policy using advantage-weighted policy gradient. CSV reader utilities handle European number formats and extract historical state data for model training and simulation initialization.
+
