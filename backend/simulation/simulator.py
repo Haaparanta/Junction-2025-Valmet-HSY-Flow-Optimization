@@ -62,7 +62,7 @@ class Simulator:
         self.water_inflows = water_inflows
         self.target_flowrates = target_flowrates
 
-        # print("water level:", self.starting_water_level)
+        print("water level:", self.starting_water_level)
 
         # Initialize pumps: 6 big pumps + 2 small pumps
         # Big pumps: 1.2, 1.3, 1.4, 2.2, 2.3, 2.4
@@ -609,7 +609,7 @@ class Simulator:
 
             # Calculate and add energy cost
             step_cost = self._calculate_time_step_cost(pumps_on, energy_price)
-            self.total_cost += step_cost
+            self.total_cost += step_cost - 1.0 * self.current_water_level
 
             # Track cost per pump (distribute cost proportionally by power)
             total_power = sum(self.pumps[pump_id].get_power() for pump_id in pumps_on)
@@ -674,4 +674,4 @@ class Simulator:
                 f"Warning: The following pumps were never used during the simulation: {', '.join(sorted(unused_pumps))}"
             )
 
-        return self.total_cost - 100.0 * self.current_water_level
+        return self.total_cost
