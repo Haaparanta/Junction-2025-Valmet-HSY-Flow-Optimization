@@ -6,7 +6,12 @@ import numpy as np
 
 from simulation.simulator import Simulator
 from .rl_model import TransformerFlowPolicy
-from .train import TrainData, CustomDataset, data_into_dataset
+from .train import (
+    TrainData,
+    CustomDataset,
+    data_into_dataset,
+    MODEL_FLOW_RATE_INTO_M3_PER_15_MINUTES,
+)
 from .csv_reader import read_csv_with_european_format
 
 from main import plot_simulation_results
@@ -40,7 +45,9 @@ def test(train_data: list[TrainData], sample_index: int):
     print(current_water_level)
     electricity_price = sample[:, 0].tolist()
     estimated_inflow_rate = sample[:, 1].tolist()
-    target_flowrates = (6 * 1400.0 / 4.0 + 2 * 400.0 / 4.0 * action.squeeze()).tolist()
+    target_flowrates = (
+        MODEL_FLOW_RATE_INTO_M3_PER_15_MINUTES * action.squeeze()
+    ).tolist()
     print("target flow:", np.mean(target_flowrates))
     simulator = Simulator(
         current_water_level,

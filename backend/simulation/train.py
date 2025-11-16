@@ -26,6 +26,9 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 print("use device:", DEVICE)
 
+# scale flow of from 0..1 into maximum flow rate of 16_000 m3/h and convert into m3/15min
+MODEL_FLOW_RATE_INTO_M3_PER_15_MINUTES = 16_000.0 / 4.0
+
 
 @dataclass
 class TrainData:
@@ -177,8 +180,6 @@ def train(
 
         max_workers = multiprocessing.cpu_count()
 
-    simulator: Simulator
-
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         last_end_time = time.time()
         for epoch in tqdm.tqdm(range(epochs), desc="Train"):
@@ -201,8 +202,7 @@ def train(
                     electricity_price = batch[sample_i, :, 0].tolist()
                     estimated_inflow_rate = batch[sample_i, :, 1].tolist()
                     target_flowrates = (
-                        # scale flow of from 0..1 into maximum flow rate of 16_000 m3/h and convert into m3/15min
-                        16_000.0 / 4.0 * sample_action.squeeze()
+                        MODEL_FLOW_RATE_INTO_M3_PER_15_MINUTES * sample_action.squeeze()
                     ).tolist()
                     simulation_args.append(
                         (
@@ -265,11 +265,7 @@ def train(
                 f"Epoch {epoch} Mean epoch loss: {mean_epoch_loss}. Time spent: {time_spent}"
             )
             last_end_time = time.time()
-
-    if simulator is not None and csv_path is not None:
-        # Run the simulator to get results for plotting
-        simulator.simulate()
-        plot_simulation_results(simulator, csv_path)
+    return policy.to("cpu")
 
 
 if __name__ == "__main__":
