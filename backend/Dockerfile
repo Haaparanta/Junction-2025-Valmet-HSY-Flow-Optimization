@@ -2,30 +2,28 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    && rm -rf /var/lib/apt/lists/*
+# Optional: install system deps if you actually need them
+# RUN apt-get update && apt-get install -y --no-install-recommends \
+#     build-essential \
+#  && rm -rf /var/lib/apt/lists/*
 
-# Copy backend requirements first for better caching
-COPY requirements.txt /app/requirements.txt
+# Copy backend requirements first for caching
+COPY backend/requirements.txt /app/requirements.txt
 
-# Install Python dependencies
-# Use --extra-index-url for PyTorch so PyPI remains primary index
-RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
+# Install Python deps (PyTorch CPU extra index)
+RUN pip install --no-cache-dir \
+    --extra-index-url https://download.pytorch.org/whl/cpu \
+    -r requirements.txt
 
-# Copy backend application code
-COPY ./ /app/
+# Copy backend code
+COPY backend/ /app/
 
-# Copy CSV data directory (needed for simulation)
-# The code expects Valmet-HSY-Docs at the root level (parent.parent from /app)
-COPY ../Valmet-HSY-Docs/ /Valmet-HSY-Docs/
+# Copy CSV data to expected root-level path
+COPY Valmet-HSY-Docs/ /Valmet-HSY-Docs/
 
-# Set Python path
+# Python path and Cloud Run port
 ENV PYTHONPATH=/app
-
-# Cloud Run sets PORT environment variable, default to 8000 for local development
 ENV PORT=8000
 
-# Run FastAPI service
-CMD uvicorn api.main:app --host 0.0.0.0 --port ${PORT}
-
+# Cloud Run: PORT is injected → use shell form so env is expanded
+CMD sh -c "uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}"
