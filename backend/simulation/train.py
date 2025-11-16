@@ -198,7 +198,7 @@ def train(
                 sim_start = time.time()
                 for sample_i in range(batch.shape[0]):
                     sample_action = action[sample_i, :]
-                    current_water_level = float(batch[sample_i, 0, 2])
+                    current_water_level = float(batch[sample_i, 0, 6])
                     electricity_price = batch[sample_i, :, 0].tolist()
                     estimated_inflow_rate = batch[sample_i, :, 1].tolist()
                     target_flowrates = (
