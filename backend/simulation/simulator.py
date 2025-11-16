@@ -68,13 +68,13 @@ class Simulator:
         # Big pumps: 1.2, 1.3, 1.4, 2.2, 2.3, 2.4
         # Small pumps: 1.1, 2.1
         self.pumps: Dict[str, Pump] = {}
-        big_pump_ids = ["1.2", "1.3", "1.4", "2.2", "2.3", "2.4"]
-        small_pump_ids = ["1.1", "2.1"]
+        self.big_pump_ids = ["1.2", "1.3", "1.4", "2.2", "2.3", "2.4"]
+        self.small_pump_ids = ["1.1", "2.1"]
 
-        for pump_id in big_pump_ids:
+        for pump_id in self.big_pump_ids:
             pump = Pump(pump_id, is_big=True)
             self.pumps[pump_id] = pump
-        for pump_id in small_pump_ids:
+        for pump_id in self.small_pump_ids:
             pump = Pump(pump_id, is_big=False)
             self.pumps[pump_id] = pump
 
@@ -161,8 +161,39 @@ class Simulator:
                 Set of pump IDs that should be turned on
         """
         # Identify pumps that MUST stay on (currently on and haven't run for minimum 4 periods)
-        pumps_must_stay_on: Set[str] = set()
-        pumps_can_turn_off: Set[str] = set()
+        # pumps_must_stay_on: Set[str] = set()
+        # pumps_can_turn_off: Set[str] = set()
+
+        large_pump_expected_flow = calculate_flow_big_m3_per_15_min_big(
+            L2 - current_level
+        )
+        small_pump_expected_flow = calculate_flow_small_m3_per_15_min_small(
+            L2 - current_level
+        )
+
+        pumps_on = set()
+
+        large_pumps_on = 0
+        small_pumps_on = 0
+
+        current_flow = 0.0
+
+        while current_flow < target_flowrate:
+            if (
+                small_pumps_on < 2
+                and small_pump_expected_flow + current_flow > target_flowrate
+            ):
+                pumps_on.add(self.small_pump_ids[small_pumps_on])
+                small_pumps_on += 1
+                current_flow += small_pump_expected_flow
+                continue
+
+            pumps_on.add(self.big_pump_ids[large_pumps_on])
+            large_pumps_on += 1
+            current_flow += large_pump_expected_flow
+
+        print("flows", target_flowrate, current_flow)
+        return pumps_on
 
         for pump_id in self.pumps.keys():
             # Check if pump is currently on
@@ -313,6 +344,7 @@ class Simulator:
         # Big pumps are prioritized within each group (one big pump replaces two small pumps)
         # Must meet or exceed target - no tolerance for undershooting
 
+        print("1", selected_pumps)
         for pump_id, pump in sorted_available:
             # Check if we've already met or exceeded target
             if total_flow >= target_flowrate:
@@ -320,10 +352,9 @@ class Simulator:
                 break
 
             # Check if pump is starting (not currently selected)
-            is_starting = pump_id not in selected_pumps
             # Account for half-speed if pump is starting
             flow = self._get_expected_flow(
-                pump_id, current_level, is_starting=is_starting, is_stopping=False
+                pump_id, current_level, is_starting=False, is_stopping=False
             )
             new_total = total_flow + flow
 
@@ -335,6 +366,7 @@ class Simulator:
             # Stop if we've met or exceeded target
             if total_flow >= target_flowrate:
                 break
+        print("2", selected_pumps)
 
         # If we still have unused pumps and haven't met target, add them if needed
         # Only add unused pumps if we're still below target
