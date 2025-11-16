@@ -77,7 +77,7 @@ class TransformerFlowPolicy(nn.Module):
         x = self.transformer(x)
         # Take last output_len positions (corresponding to future prices)
         out = self.output_head(x[-self.output_len :, :])
-        return out.squeeze(-1)  # shape: [output_len]
+        return torch.abs(out.squeeze(-1))  # shape: [output_len]
 
     def get_action_and_logprob(self, state):
         """

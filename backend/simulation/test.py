@@ -41,8 +41,9 @@ def test(train_data: list[TrainData], sample_index: int):
 
     action = policy.forward(sample)
 
-    current_water_level = float(sample[0, 2])
-    print(current_water_level)
+    print("action mean", action.mean())
+
+    current_water_level = float(sample[0, 6])
     electricity_price = sample[:, 0].tolist()
     estimated_inflow_rate = sample[:, 1].tolist()
     target_flowrates = (
