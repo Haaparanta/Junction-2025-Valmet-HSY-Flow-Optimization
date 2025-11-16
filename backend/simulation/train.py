@@ -5,6 +5,7 @@ from numpy.random import random, shuffle
 import pandas as pd
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import time
+import pickle
 
 import tqdm
 
@@ -241,6 +242,7 @@ def train(
                         all_costs[sample_i] = float(
                             "inf"
                         )  # Penalize failed simulations
+                        raise
 
                 time_spent["sim"] += time.time() - sim_start
                 # loss = -(log_prob * total_cost + penalize_min_flow_rate(action.detach()))
@@ -285,8 +287,14 @@ if __name__ == "__main__":
     print(f"Reading CSV data from: {csv_path}")
 
     # Read CSV data
-    df = read_csv_with_european_format(csv_path)
-    dataset = data_into_dataset(df)
+    if not os.path.exists("/tmp/dataset.pickle"):
+        df = read_csv_with_european_format(csv_path)
+        dataset = data_into_dataset(df)
+        with open("/tmp/dataset.pickle", "wb+") as f:
+            pickle.dump(dataset, f)
+    else:
+        with open("/tmp/dataset.pickle", "rb") as f:
+            dataset = pickle.load(f)
 
     policy = TransformerFlowPolicy(input_shape=[96, 11]).to(DEVICE)
     optimizer = optim.Adam(policy.parameters(), lr=1e-3)

@@ -188,11 +188,12 @@ class Simulator:
                 current_flow += small_pump_expected_flow
                 continue
 
+            if large_pumps_on >= 6:
+                break
             pumps_on.add(self.big_pump_ids[large_pumps_on])
             large_pumps_on += 1
             current_flow += large_pump_expected_flow
 
-        print("flows", target_flowrate, current_flow)
         return pumps_on
 
     def _check_minimum_runtime(self, time_step: int, pumps_on: Set[str]) -> float:
