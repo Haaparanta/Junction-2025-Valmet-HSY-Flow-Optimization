@@ -44,6 +44,8 @@
   const sortedSimulations = $derived.by(async (): Promise<SimulationMetadataDTO[]> => {
     const depsTracked = [sortBy, sortOrder]
     const sims = await data.simulations
+    if (!sims) return []
+
     const sorted = [...sims].sort((a: SimulationMetadataDTO, b: SimulationMetadataDTO) => {
       let comparison = 0
       switch (sortBy) {
@@ -62,6 +64,7 @@
       }
       return sortOrder === 'asc' ? comparison : -comparison
     })
+    console.log('Sorted Simulations:', sorted)
     return sorted
   })
 </script>
@@ -77,7 +80,7 @@
       <input
         id="header-simulation-name"
         type="text"
-        class="flex-1 rounded-md border border-border-secondary bg-background-card px-4 py-2 text-sm font-medium text-text-primary placeholder-text-muted shadow-[0_12px_30px_rgba(2,6,23,0.65)] transition focus:border-(--color-accent-primary) focus:ring-2 focus:ring-(--color-accent-primary)/40 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70"
+        class="flex-1 rounded-xl border border-border-secondary bg-background-card px-4 py-2 text-sm font-medium text-text-primary placeholder-text-muted shadow-[0_12px_30px_rgba(2,6,23,0.65)] transition focus:border-(--color-accent-primary) focus:ring-2 focus:ring-(--color-accent-primary)/40 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70"
         placeholder="Optional simulation name"
         name="simulationName"
         disabled={generating}
@@ -91,9 +94,9 @@
   {#await data.simulations}
     <LoadingSpinner message="Loading Simulations" subtitle="Fetching simulation history..." />
   {:then simulations}
-    {#if simulations.length === 0}
+    {#if simulations?.length === 0}
       <div
-        class="relative flex min-h-96 flex-col items-center justify-center gap-6 rounded-md border border-slate-800 bg-slate-950/80 p-12 backdrop-blur"
+        class="relative flex min-h-96 flex-col items-center justify-center gap-6 rounded-xl border border-slate-800 bg-slate-950/80 p-12 backdrop-blur"
       >
         <div class="text-center">
           <h2 class="mb-2 text-2xl font-bold text-slate-200">No Simulations Yet</h2>
@@ -175,7 +178,7 @@
     {/if}
   {:catch error}
     <div
-      class="relative flex min-h-96 flex-col items-center justify-center gap-6 rounded-md border border-slate-800 bg-slate-950/80 p-12 backdrop-blur"
+      class="relative flex min-h-96 flex-col items-center justify-center gap-6 rounded-xl border border-slate-800 bg-slate-950/80 p-12 backdrop-blur"
     >
       <div class="text-center">
         <h2 class="mb-2 text-2xl font-bold text-slate-200">Failed to Load Simulations</h2>
