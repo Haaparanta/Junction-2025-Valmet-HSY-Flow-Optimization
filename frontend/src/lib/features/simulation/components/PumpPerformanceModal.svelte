@@ -21,10 +21,10 @@
 
   // Transform performance curve data for LayerCake
   // performanceCurve is [[flow1, head1], [flow2, head2], ...]
-  // Convert flow from m³/s to L/s (multiply by 1000)
+  // Convert flow from m3/h to L/s (by multiplying by 1000/3600)
   const data = $derived(
     performanceCurve.map(([flow, head]) => ({
-      x: flow * 1000,
+      x: (flow * 1000) / 3600,
       y: head
     }))
   )
@@ -169,7 +169,7 @@
             <PerformanceCurvePoints {data} {efficiencyScores} {getColorForEfficiency} />
 
             <!-- Show current operating point -->
-            <OperatingPointIndicator currentFlow={currentFlow * 1000} performanceCurve={data} />
+            <OperatingPointIndicator currentFlow={(currentFlow * 1000) / 3600} performanceCurve={data} />
           </Svg>
         </LayerCake>
       {:else}

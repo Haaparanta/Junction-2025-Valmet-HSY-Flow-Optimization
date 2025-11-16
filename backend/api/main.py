@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from simulation.simulator import Simulator
 from simulation.rl_model import TransformerFlowPolicy, input_tensor
 from simulation.tunnel import calculate_volume_from_level, VD_MAX
+from simulation.train import MODEL_FLOW_RATE_INTO_M3_PER_15_MINUTES
 
 try:
     import torch
@@ -131,11 +132,12 @@ def calculate_ai_target_flowrates(
         
         with torch.no_grad():
             # Model outputs normalized values (0-1)
-            normalized_flowrates = model.forward(input_data)
+            action = model.forward(input_data)
             
-            # Scale to actual flowrates
-            # Max system capacity: 16,000 m³/h → 4,000 m³/15min
-            target_flowrates = (normalized_flowrates * 4000.0).tolist()
+            # Scale to actual flowrates using the same constant as training
+            target_flowrates = (
+                MODEL_FLOW_RATE_INTO_M3_PER_15_MINUTES * action.squeeze()
+            ).tolist()
             
             # Ensure we have exactly 96 values
             if len(target_flowrates) != 96:

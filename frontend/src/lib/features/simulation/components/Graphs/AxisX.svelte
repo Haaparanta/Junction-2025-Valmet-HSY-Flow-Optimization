@@ -42,7 +42,7 @@
 </script>
 
 <g class="axis axis-x">
-  {#each tickValues as tick}
+  {#each tickValues as tick, i}
     {#if gridlines}
       <line
         x1={$xScale(tick)}
@@ -54,8 +54,10 @@
         stroke-opacity="0.3"
       />
     {/if}
-    <text x={$xScale(tick)} y={$height + 20} text-anchor="middle" fill={tickColor} font-size="12">
-      {format(tick)}
-    </text>
+    {#if i % 2 === 0}
+      <text x={$xScale(tick)} y={$height + 20} text-anchor="middle" fill={tickColor} font-size="12">
+        {format(tick)}
+      </text>
+    {/if}
   {/each}
 </g>

@@ -47,6 +47,16 @@
           }))
         : []
 
+    const outflowData =
+      ctx.outflowStrategy.length === ctx.timeStamps.length
+        ? ctx.outflowStrategy.map((value, index) => ({
+            x: new Date(ctx.timeStamps[index]).getTime(),
+            y: value,
+            rawY: value,
+            index
+          }))
+        : []
+
     return [
       {
         name: 'Electricity Price',
@@ -63,6 +73,14 @@
         data: inflowData,
         yAxisSide: 'right' as const,
         formatValue: (v: number) => v.toFixed(0)
+      },
+      {
+        name: 'Outflow Strategy',
+        unit: 'm³/s',
+        color: 'var(--color-chart-strategy)',
+        data: outflowData,
+        yAxisSide: 'right' as const,
+        formatValue: (v: number) => v.toFixed(1)
       }
     ]
   })
@@ -128,12 +146,22 @@
     const inflowDataset = datasets.find((d) => d.name === 'Inflow Prediction')
     return inflowDataset?.data[ctx.currentTimeIndex]?.rawY ?? 0
   })
+
+  const currentOutflow = $derived.by(() => {
+    const outflowDataset = datasets.find((d) => d.name === 'Outflow Strategy')
+    return outflowDataset?.data[ctx.currentTimeIndex]?.rawY ?? 0
+  })
 </script>
 
 {#if datasets.length > 0 && datasets.every((d) => d.data.length > 0)}
   <div class="flex items-center justify-end gap-6">
     {#each datasets as dataset}
-      {@const currentValue = dataset.name === 'Electricity Price' ? currentElectricityPrice : currentInflow}
+      {@const currentValue =
+        dataset.name === 'Electricity Price'
+          ? currentElectricityPrice
+          : dataset.name === 'Inflow Prediction'
+            ? currentInflow
+            : currentOutflow}
       <div class="flex items-center gap-2">
         <div class="h-0.5 w-6" style="background-color: {dataset.color}"></div>
         <span class="text-xs" style="color: var(--color-text-secondary)">
