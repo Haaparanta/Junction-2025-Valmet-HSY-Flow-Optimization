@@ -1,6 +1,5 @@
 """24-hour simulation engine for wastewater tunnel system."""
 
-import cachetools
 from typing import List, Dict, Set
 from .pump import (
     L2,
@@ -196,59 +195,6 @@ class Simulator:
 
         return pumps_on
 
-    def _check_minimum_runtime(self, time_step: int, pumps_on: Set[str]) -> float:
-        """
-        Check if pumps meet minimum runtime requirement (1 hour = 4 periods).
-
-        A pump that is turned on must run for at least 4 consecutive periods (1 hour)
-        before it can be turned off.
-
-        Args:
-            time_step: Current time step (0-95)
-            pumps_on: Set of pump IDs that are currently on
-
-        Returns:
-            Penalty cost (0 if no violations, PENALTY_COST per violation)
-        """
-        penalty = 0.0
-
-        for pump_id in self.pumps.keys():
-            # Check if pump was on in previous time step
-            was_on = (
-                (
-                    len(self.pump_state_history[pump_id]) > 0
-                    and self.pump_state_history[pump_id][-1]
-                )
-                if len(self.pump_state_history[pump_id]) > 0
-                else False
-            )
-            is_on = pump_id in pumps_on
-
-            # Pump was turned off
-            if was_on and not is_on:
-                # Check if it ran for at least 4 periods
-                if pump_id in self.pump_turn_on_time:
-                    turn_on_time = self.pump_turn_on_time[pump_id]
-                    runtime_periods = time_step - turn_on_time
-
-                    if runtime_periods < MINIMUM_RUNTIME_PERIODS:
-                        penalty += PENALTY_COST
-                        self.violations.append(
-                            f"Time step {time_step}: Pump {pump_id} violated minimum runtime "
-                            f"(ran for {runtime_periods * TIME_STEP_MINUTES} minutes, "
-                            f"minimum is {MINIMUM_RUNTIME_PERIODS * TIME_STEP_MINUTES} minutes)"
-                        )
-
-                    # Remove from turn-on tracking
-                    del self.pump_turn_on_time[pump_id]
-
-            # Pump was turned on
-            elif not was_on and is_on:
-                # Record turn-on time
-                self.pump_turn_on_time[pump_id] = time_step
-
-        return penalty
-
     def _update_state(self, inflow: float, outflow: float) -> float:
         """
             Update water level and volume based on inflow and outflow.
@@ -370,6 +316,7 @@ class Simulator:
                     f"{RAJA_4} m"
                 )
 
+                
             # Update pump state history
             for pump_id in self.pumps.keys():
                 is_on = pump_id in pumps_on
@@ -404,7 +351,8 @@ class Simulator:
             self.time_series_data["energy_prices"].append(energy_price)
             self.time_series_data["target_flowrates"].append(target_flowrate)
             self.time_series_data["costs"].append(
-                step_cost + (level_penalty if not is_valid_level else 0.0)
+                step_cost
+                + (level_penalty if not is_valid_level else 0.0)
             )
             self.time_series_data["cumulative_costs"].append(self.total_cost)
 
