@@ -288,6 +288,6 @@ if __name__ == "__main__":
     df = read_csv_with_european_format(csv_path)
     dataset = data_into_dataset(df)
 
-    policy = (TransformerFlowPolicy(input_shape=[96, 11]).to(DEVICE),)
+    policy = TransformerFlowPolicy(input_shape=[96, 11]).to(DEVICE)
     optimizer = (optim.Adam(policy.parameters(), lr=1e-3),)
     train(policy, optimizer, dataset, csv_path=csv_path)
