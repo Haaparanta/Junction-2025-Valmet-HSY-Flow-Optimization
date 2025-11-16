@@ -152,6 +152,8 @@ def run_single_simulation(args):
 
 
 def train(
+    policy,
+    optimizer,
     train_data: list[TrainData],
     batch_size=64,
     epochs=10,
@@ -166,8 +168,6 @@ def train(
         csv_path: Path to CSV file for plotting results (optional)
         max_workers: Maximum number of worker processes. If None, uses os.cpu_count()
     """
-    policy = TransformerFlowPolicy(input_shape=[96, 11]).to(DEVICE)
-    optimizer = optim.Adam(policy.parameters(), lr=1e-3)
 
     data = CustomDataset(train_data)
     loader = DataLoader(data, batch_size=batch_size, shuffle=True)
@@ -244,7 +244,8 @@ def train(
 
                 time_spent["sim"] += time.time() - sim_start
                 # loss = -(log_prob * total_cost + penalize_min_flow_rate(action.detach()))
-                advantage = all_costs / (all_costs.std() + 1e-8)
+                advantage = all_costs / (all_costs.std() + 1e-6)
+                advantage = torch.clamp(advantage, -10, 10)
                 loss = (log_prob * advantage).mean()
                 epoch_loss.append(loss)
                 # print(loss)
@@ -265,7 +266,7 @@ def train(
                 f"Epoch {epoch} Mean epoch loss: {mean_epoch_loss}. Time spent: {time_spent}"
             )
             last_end_time = time.time()
-    return policy.to("cpu")
+    return policy.to("cpu"), optimizer
 
 
 if __name__ == "__main__":
@@ -286,4 +287,7 @@ if __name__ == "__main__":
     # Read CSV data
     df = read_csv_with_european_format(csv_path)
     dataset = data_into_dataset(df)
-    train(dataset, csv_path=csv_path)
+
+    policy = (TransformerFlowPolicy(input_shape=[96, 11]).to(DEVICE),)
+    optimizer = (optim.Adam(policy.parameters(), lr=1e-3),)
+    train(policy, optimizer, dataset, csv_path=csv_path)

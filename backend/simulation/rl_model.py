@@ -85,7 +85,7 @@ class TransformerFlowPolicy(nn.Module):
         returns action (sampled flow sequence), log_prob
         """
         mean = self.forward(state)  # [1,96]
-        std = torch.exp(self.log_std).unsqueeze(0)  # [1,96]
+        std = torch.exp(self.log_std).clamp(min=1e-3, max=1.0).unsqueeze(0)  # [1,96]
         dist = torch.distributions.Normal(mean, std)
 
         action = dist.rsample()  # reparameterized sample
