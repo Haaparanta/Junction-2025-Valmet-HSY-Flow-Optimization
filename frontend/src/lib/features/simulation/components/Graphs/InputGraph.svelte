@@ -3,6 +3,7 @@
   import { getSimulationContext } from '../../logic.svelte'
   import AxisX from './AxisX.svelte'
   import AxisY from './AxisY.svelte'
+  import Bar from './Bar.svelte'
   import Line from './Line.svelte'
   import QuadTree from './QuadTree.svelte'
   import TimeIndicator from './TimeIndicator.svelte'
@@ -57,6 +58,16 @@
           }))
         : []
 
+    const rainfallData =
+      ctx.weatherForecast.length === ctx.timeStamps.length
+        ? ctx.weatherForecast.map((value, index) => ({
+            x: new Date(ctx.timeStamps[index]).getTime(),
+            y: value,
+            rawY: value,
+            index
+          }))
+        : []
+
     return [
       {
         name: 'Electricity Price',
@@ -80,6 +91,14 @@
         color: 'var(--color-chart-strategy)',
         data: outflowData,
         yAxisSide: 'right' as const,
+        formatValue: (v: number) => v.toFixed(1)
+      },
+      {
+        name: 'Expected Rainfall',
+        unit: 'mm',
+        color: 'var(--color-chart-result)',
+        data: rainfallData,
+        yAxisSide: 'left' as const,
         formatValue: (v: number) => v.toFixed(1)
       }
     ]
@@ -151,6 +170,15 @@
     const outflowDataset = datasets.find((d) => d.name === 'Outflow Strategy')
     return outflowDataset?.data[ctx.currentTimeIndex]?.rawY ?? 0
   })
+
+  const currentRainfall = $derived.by(() => {
+    const rainfallDataset = datasets.find((d) => d.name === 'Expected Rainfall')
+    return rainfallDataset?.data[ctx.currentTimeIndex]?.rawY ?? 0
+  })
+
+  // Separate line datasets from bar datasets
+  const lineDatasets = $derived(normalizedDatasets.filter((d) => d.name !== 'Expected Rainfall'))
+  const barDatasets = $derived(normalizedDatasets.filter((d) => d.name === 'Expected Rainfall'))
 </script>
 
 {#if datasets.length > 0 && datasets.every((d) => d.data.length > 0)}
@@ -161,7 +189,9 @@
           ? currentElectricityPrice
           : dataset.name === 'Inflow Prediction'
             ? currentInflow
-            : currentOutflow}
+            : dataset.name === 'Outflow Strategy'
+              ? currentOutflow
+              : currentRainfall}
       <div class="flex items-center gap-2">
         <div class="h-0.5 w-6" style="background-color: {dataset.color}"></div>
         <span class="text-xs" style="color: var(--color-text-secondary)">
@@ -190,7 +220,10 @@
         />
       {/if}
       <AxisX gridlines={true} format={formatTime} hoursOnly={true} />
-      {#each normalizedDatasets as dataset}
+      {#each barDatasets as dataset}
+        <Bar fill={dataset.color} opacity={0.3} data={dataset.normalizedData} />
+      {/each}
+      {#each lineDatasets as dataset}
         <Line stroke={dataset.color} strokeWidth={2} data={dataset.normalizedData} />
       {/each}
       <TimeIndicator x={indicatorX ?? undefined} xNext={indicatorXNext ?? undefined} />

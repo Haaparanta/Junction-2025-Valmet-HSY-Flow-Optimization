@@ -56,7 +56,7 @@
       {name}
     </div>
     <div class="text-xs" style:color={isActive ? 'var(--color-chart-strategy)' : 'var(--color-text-disabled)'}>
-      {(forecastedUse * 1000).toFixed(1)} L/s
+      {((forecastedUse * 1000) / 3600).toFixed(1)} L/s
     </div>
   </div>
 </button>

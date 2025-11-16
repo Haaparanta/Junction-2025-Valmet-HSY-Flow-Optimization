@@ -64,7 +64,6 @@
       }
       return sortOrder === 'asc' ? comparison : -comparison
     })
-    console.log('Sorted Simulations:', sorted)
     return sorted
   })
 </script>
